@@ -46,6 +46,7 @@ extension points rather than modifying shared behavior. The touch points:
 | `setup.sh` | `--bob` flag with setup / diagnose / uninstall / clean |
 | `tests/` | `test_bob.py`, `fixtures/contracts/bob.json`, capability manifest entry |
 | `examples/` | `bob-hooks.example.json`, `bob-enforced-hooks.example.json` |
+| `BOB-SETUP.ja.md` | Japanese setup guide (install, per-user setup, `enforcedHooks` rollout, troubleshooting) |
 | `README.md`, `CHANGELOG.md`, `pyproject.toml` | Bob documentation and metadata |
 
 One upstream file is changed for a non-Bob reason:

@@ -407,6 +407,9 @@ Restart OpenCode after installing. The bundled plugin — including the copy ins
 
 #### IBM Bob
 
+> 日本語のセットアップ手順書は [**BOB-SETUP.ja.md**](BOB-SETUP.ja.md) にあります
+> (Japanese setup guide, including org-wide `enforcedHooks` rollout).
+
 Bob uses the same nested `matcher` + `hooks[]` config shape as Claude Code, in
 `~/.bob/settings/settings.json` (global) or `.bob/settings.json` (workspace):
 
