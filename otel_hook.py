@@ -5282,7 +5282,7 @@ def main() -> int:
 # Setup CLI: helpers
 # ---------------------------------------------------------------------------
 
-_REPO_MARKERS = (".git", ".github", ".cursor", ".claude", ".gemini", ".codex", ".opencode", ".windsurf")
+_REPO_MARKERS = (".git", ".github", ".cursor", ".claude", ".gemini", ".codex", ".opencode", ".windsurf", ".bob")
 
 
 def _find_repo_root(cwd: str) -> str:

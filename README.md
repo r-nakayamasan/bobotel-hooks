@@ -531,7 +531,7 @@ Then restart your agent or IDE.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `IDE_OTEL_BATCH_ON_STOP` | Enable session-level batching (recommended) | `false` |
-| `IDE_OTEL_IDE_NAME` | Force the detected IDE name (`codex`, `cursor`, `copilot`, `claude`, `gemini`, `antigravity`, `opencode`, `windsurf`) for generic hook runners; common labels like `OpenAI Codex`, `Codex CLI`, `GitHub Copilot`, `Claude Code`, `Cursor IDE` / `Cursor CLI`, `Gemini CLI`, `Anti Gravity`, `OpenCode`, `Windsurf IDE`, `Codeium Windsurf`, and their `... CLI` / `... IDE` variants normalize automatically | auto-detect |
+| `IDE_OTEL_IDE_NAME` | Force the detected IDE name (`codex`, `cursor`, `copilot`, `claude`, `gemini`, `antigravity`, `opencode`, `windsurf`, `bob`) for generic hook runners; common labels like `OpenAI Codex`, `Codex CLI`, `GitHub Copilot`, `Claude Code`, `Cursor IDE` / `Cursor CLI`, `Gemini CLI`, `Anti Gravity`, `OpenCode`, `Windsurf IDE`, `Codeium Windsurf`, `IBM Bob`, and their `... CLI` / `... IDE` variants normalize automatically | auto-detect |
 | `IDE_OTEL_LOCAL_SPANS` | Save hook spans locally as JSONL files for agent analysis (`.state/local_spans/*.jsonl`) | unset |
 | `IDE_OTEL_CAPTURE_CONVERSATION_CONTENT` | Include prompt, response, stop-message, error, and delegation text in spans | `false` |
 | `IDE_OTEL_CAPTURE_TEXT` | Legacy broad text-capture gate; also enables conversation content | `false` |
@@ -831,7 +831,7 @@ Requires the [Datadog Agent](https://docs.datadoghq.com/opentelemetry/) with OTL
 | `gen_ai.client.hook.event` | Canonical event name (PascalCase) |
 | `gen_ai.client.hook.event_id` | Provider event ID or deterministic hook callback identity |
 | `gen_ai.client.telemetry_source` / `gen_ai.client.hook_schema_version` | Explicit hook provenance and contract version |
-| `gen_ai.client.name` | Outer IDE or hook host (`codex`, `cursor`, `copilot`, `claude`, `opencode`, etc.) |
+| `gen_ai.client.name` | Outer IDE or hook host (`codex`, `cursor`, `copilot`, `claude`, `opencode`, `bob`, etc.) |
 | `gen_ai.client.agent_engine` | Inner agent engine when it differs from the outer IDE (for example Cursor running Claude Code) |
 | `gen_ai.client.session_id` | Session identifier |
 | `gen_ai.client.generation_id` | Generation identifier (Cursor) |
