@@ -6,6 +6,7 @@
 英語版は [README の IBM Bob セクション](README.md#ibm-bob) にあります。
 
 - **個人で試す場合** → [1〜4章](#1-前提条件)
+- **バックエンドを立てず PC のフォルダだけで試す場合** → [4-B](#4-b-ローカルのフォルダだけに出力するバックエンド不要)
 - **組織全体に強制展開する場合** → [6章 enforcedHooks](#6-組織全体への強制展開enforcedhooks)
 
 > **先に知っておくべき Bob の性質**
@@ -111,7 +112,18 @@ Bob はタイムアウトを黙って無視するため、短すぎる値はテ�
 
 ---
 
-## 4. 送信先（OTLP エクスポーター）の設定
+## 4. 送信先の設定
+
+送信先は2通りから選べます。
+
+| | 用途 | 送信先 | バックエンド |
+|---|---|---|---|
+| **4-A** | 本番・チーム共有 | OTLP コレクター | 必要 |
+| **4-B** | ひとりでローカル検証 | **PC 上のフォルダ（JSONL ファイル）** | **不要** |
+
+まずローカルだけで動作を確かめたい場合は [4-B](#4-b-ローカルのフォルダだけに出力するバックエンド不要) に進んでください。
+
+### 4-A. OTLP コレクターに送る
 
 hook 自身の設定ファイルを編集します。pip / pipx インストールの場合:
 
@@ -131,7 +143,7 @@ hook 自身の設定ファイルを編集します。pip / pipx インストー�
 }
 ```
 
-### 主な設定項目
+#### 主な設定項目
 
 | 変数 | 説明 | 既定値 |
 |---|---|---|
@@ -143,7 +155,7 @@ hook 自身の設定ファイルを編集します。pip / pipx インストー�
 | `IDE_OTEL_BATCH_ON_STOP` | セッション単位のバッチ送信（推奨） | `false` |
 | `IDE_OTEL_STATE_TTL_SECONDS` | 状態ファイルの TTL。**Bob では短縮推奨**（[7章](#sessionend-が存在しない)） | `86400` |
 
-### プライバシー関連（既定はすべて無効＝本文を送らない）
+#### プライバシー関連（既定はすべて無効＝本文を送らない）
 
 既定ではプロンプトやツール入出力の**本文は送信されず**、文字数と SHA-256
 ハッシュのみが記録されます。本文が必要な場合のみ明示的に有効化してください。
@@ -162,6 +174,189 @@ hook 自身の設定ファイルを編集します。pip / pipx インストー�
 > `otel-hook` は起動ごとに自身の `otel_config.json` を読み、次に MDM/レジストリ
 > ポリシーを重ね、最後に未設定の変数だけを実行時環境から補完します。明示的な
 > 環境変数は優先されますが、親プロセスからの `OTEL_*` 継承に依存しません。
+
+
+### 4-B. ローカルのフォルダだけに出力する（バックエンド不要）
+
+コレクターを立てずに、**PC 上のフォルダへ JSONL ファイルとして書き出す**構成です。
+1人での動作確認、hook が本当に呼ばれているかの調査、属性の中身を目で見たいときに使います。
+
+必要な設定は2つだけです。
+
+| 設定 | 値 | 意味 |
+|---|---|---|
+| `IDE_OTEL_LOCAL_SPANS` | `"true"` | span をローカル JSONL に保存する |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | **設定しない** | リモート送信を行わない |
+
+出力先は `<hook ホーム>/.state/local_spans/<session_id>.jsonl` です。
+`<hook ホーム>` は既定で `~/.local/share/opentelemetry-hooks`、
+`IDE_OTEL_HOOK_HOME` で変更できます。
+
+#### 方法B-1: 既定の場所に出す（手軽・推奨）
+
+`~/.local/share/opentelemetry-hooks/otel_config.json` を次の内容にします。
+`OTEL_EXPORTER_OTLP_ENDPOINT` の行は**書きません**。
+
+```json
+{
+  "IDE_OTEL_LOCAL_SPANS": "true",
+  "IDE_OTEL_BATCH_ON_STOP": "true",
+  "IDE_OTEL_STATE_TTL_SECONDS": "3600"
+}
+```
+
+hook の登録は通常どおりで構いません。
+
+```bash
+otel-hook setup --agent bob
+```
+
+出力先:
+
+```bash
+ls ~/.local/share/opentelemetry-hooks/.state/local_spans/
+# local1.jsonl  ...  セッションごとに1ファイル
+```
+
+#### 方法B-2: 出力先フォルダを自分で指定する
+
+「このフォルダに出したい」という場合は `IDE_OTEL_HOOK_HOME` を指定します。
+Bob の hook 設定に `env` ブロックはないため、**`command` を `env` でラップ**します。
+
+```bash
+# 例: ~/bob-telemetry に出す
+mkdir -p ~/bob-telemetry
+otel-hook setup --agent bob --no-global
+```
+
+生成された `.bob/settings.json` の `command` を、5イベントすべて次の形に書き換えます。
+
+```json
+{
+  "type": "command",
+  "command": "env IDE_OTEL_HOOK_HOME=/Users/you/bob-telemetry IDE_OTEL_LOCAL_SPANS=true otel-hook --bob",
+  "timeout": 30
+}
+```
+
+`command` はシェルで実行されるため `env VAR=値 コマンド` がそのまま使えます。
+`~` は展開されない場合があるので**絶対パス**で書いてください。
+
+sed でまとめて置換する例:
+
+```bash
+python3 - <<'EOF'
+import json, pathlib
+p = pathlib.Path(".bob/settings.json")
+d = json.loads(p.read_text())
+new = "env IDE_OTEL_HOOK_HOME=/Users/you/bob-telemetry IDE_OTEL_LOCAL_SPANS=true otel-hook --bob"
+for entries in d["hooks"].values():
+    for e in entries:
+        for h in e["hooks"]:
+            if "otel-hook" in h["command"] or "otel_hook" in h["command"]:
+                h["command"] = new
+p.write_text(json.dumps(d, indent=2) + "\n")
+print("書き換えました")
+EOF
+```
+
+> **注意: 指定したフォルダは「span の置き場」ではなく hook の作業ホーム全体になります。**
+> `otel_config.json`・`.state/`・ログのほか、OpenTelemetry SDK 用の **`.venv/` が
+> 自動生成され数百ファイルが作られます**。Git 管理下に置くなら `.gitignore` に
+> 追加するか、リポジトリ外のフォルダを指定してください。
+> 「span だけ見たい」なら方法B-1 のほうが副作用がありません。
+
+#### 出力の確認
+
+`Stop` まで到達した時点でフラッシュされます（[5-2章](#5-2-hook-を手動で叩いてみる)と同じ理由）。
+
+```bash
+OUT=~/.local/share/opentelemetry-hooks/.state/local_spans   # 方法B-2 なら指定したフォルダ配下
+ls -la $OUT
+
+# イベントとツール名の一覧（jq がある場合）
+jq -r '[.attributes["gen_ai.client.hook.event"] // .name, .attributes["gen_ai.client.tool_name"] // "-"] | @tsv' \
+  $OUT/*.jsonl
+
+# jq が無い場合
+python3 -c "
+import json,glob,sys
+for p in sorted(glob.glob(sys.argv[1])):
+    for l in open(p):
+        s=json.loads(l); a=s['attributes']
+        print(a.get('gen_ai.client.hook.event') or s['name'], '|', a.get('gen_ai.client.tool_name','-'))
+" "$OUT/*.jsonl"
+```
+
+出力例（1ターン分）:
+
+```
+UserPromptSubmit          -
+PreToolUse                write_file
+PostToolUse               write_file
+Stop                      -
+gen_ai.client.generation  -
+```
+
+最後の `gen_ai.client.generation` は1ターン全体をまとめた親 span です。
+hook イベントではないので `hook.event` 属性を持たず、上のコマンドでは
+span 名で表示されます。これが出ていれば正常です。
+
+`SessionStart` の行が無いのも正常です（[7章](#sessionend-が存在しない)）。
+
+1行が1 span の JSON です。主なキー:
+
+| キー | 内容 |
+|---|---|
+| `name` | `gen_ai.client.hook.PreToolUse` など span 名 |
+| `trace_id` / `span_id` / `parent_span_id` | トレース構造 |
+| `start_time_ns` / `end_time_ns` | 開始・終了時刻 |
+| `attributes` | 属性一覧（下記） |
+| `resource` | サービス名などのリソース属性 |
+
+`attributes` の主なもの:
+
+```
+gen_ai.client.name             = "bob"
+gen_ai.client.hook.event       = "PreToolUse"
+gen_ai.client.tool_name        = "write_file"     ← Bob の tool から変換された値
+gen_ai.client.session_id       = "local1"
+gen_ai.operation.name          = "execute_tool"
+gen_ai.client.tool.input.length = 16              ← 本文ではなく長さとハッシュ
+gen_ai.client.tool.input.sha256 = "dcd6d08c..."
+```
+
+#### ローカル検証時のログ
+
+送信しないので、動きを追うには hook のログを使います。
+
+```bash
+# ログレベルを上げ、各イベントを記録する
+# (otel_config.json に入れるか、上記の env ラップに足す)
+IDE_OTEL_LOG_LEVEL=DEBUG
+IDE_OTEL_LOG_EVENTS=true
+
+tail -f ~/.local/share/opentelemetry-hooks/otel_hook.log
+```
+
+> **`IDE_OTEL_DEBUG_CONSOLE=true` は Bob では使わないでください。**
+> このオプションは span を **stdout** に出力する設計です。Bob は
+> `SessionStart` / `UserPromptSubmit` の stdout をモデルのコンテキストに
+> 注入するため、原理的にプロンプトを汚染しうる唯一の設定です。
+> 手元の検証では実際に出力されることは確認できませんでしたが、
+> リスクを取る理由がないので、ローカル検証でも `IDE_OTEL_LOCAL_SPANS`
+> （ファイル出力）と上記のログを使ってください。
+
+#### 後片付け
+
+```bash
+rm -rf ~/.local/share/opentelemetry-hooks/.state/local_spans/*.jsonl
+```
+
+ローカル検証を終えて本番のコレクターに切り替えるときは、`IDE_OTEL_LOCAL_SPANS` を
+外し（または `"false"`）、[4-A](#4-a-otlp-コレクターに送る) の
+`OTEL_EXPORTER_OTLP_ENDPOINT` を設定してください。方法B-2 で `command` を
+書き換えていた場合は `otel-hook setup --agent bob` で元の形に戻せます。
 
 ---
 
