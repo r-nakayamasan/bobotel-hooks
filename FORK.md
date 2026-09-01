@@ -10,15 +10,22 @@ relationship is maintained through a plain `upstream` remote instead.
 ## Remotes
 
 ```
-origin    → this fork   (github.ibm.com)
-upstream  → https://github.com/o11y-dev/opentelemetry-hooks.git
+origin    → https://github.ibm.com/Ryo-Nakayama/opentelemetry-hooks-bob.git   (private)
+upstream  → https://github.com/o11y-dev/opentelemetry-hooks.git               (fetch only)
 ```
 
-If `upstream` is missing after a fresh clone:
+`upstream` has its push URL deliberately disabled so a stray `git push upstream`
+cannot reach the public repository. Reproduce that after a fresh clone with:
 
 ```bash
 git remote add upstream https://github.com/o11y-dev/opentelemetry-hooks.git
+git remote set-url --push upstream DISABLED_use_origin
 ```
+
+## Branches
+
+- `main` — kept at upstream parity, no fork changes. Merge `upstream/main` here.
+- `feat/bob-adapter` — the IBM Bob work.
 
 ## Syncing with upstream
 
