@@ -240,7 +240,9 @@ otel-hook setup --agent bob --no-global
 ```
 
 `command` はシェルで実行されるため `env VAR=値 コマンド` がそのまま使えます。
-`~` は展開されない場合があるので**絶対パス**で書いてください。
+実機の Bob では `~` も展開されます（既存の Bob hook が
+`sh ~/.bob/hooks/...` の形で動作していることを確認しました）。ただし配布物では
+解釈の揺れを避けるため**絶対パス**を推奨します。
 
 sed でまとめて置換する例:
 
@@ -535,7 +537,9 @@ otel-hook diagnose --agent bob
 ### stdout には何も出力しない
 
 Bob は `SessionStart` と `UserPromptSubmit` の hook stdout をモデルの
-コンテキストに注入し、それ以外では無視します。Bob には stdout の応答仕様が
+コンテキストに注入し、それ以外では無視します。これは仕様書の記述だけでなく、
+実機で確認済みです（Bob 用の既存 SessionStart hook が、まさにこの注入を
+利用してコンテキストを流し込む作りになっていました）。Bob には stdout の応答仕様が
 なく、制御は終了コード 2 で行います。したがって他エージェントで使う
 `{"continue": true}` を出力すると、毎ターンその JSON がプロンプトに
 貼り込まれてしまいます。そのため Bob アダプターは**全イベントで無出力**、
@@ -582,6 +586,22 @@ Bob がサポートするのは5つの lifecycle hook のみです。
 
 シェル実行・ファイル操作・MCP 呼び出しはすべて `PreToolUse` / `PostToolUse` を
 通り、`tool_name` で判別できます。専用イベントはありません。
+
+実機の Bob（v2.0.2）で観測されたツール名の例:
+
+```
+write_file  apply_diff  search_and_replace  insert_content  read_file
+execute_command  spawn_subagent  use_skill  update_todo_list
+ask_followup_question  create_chart  create_html_artifact
+search_bob_docs  start_workflow  switch_mode
+```
+
+いずれも snake_case なので `matcher: ".*"` で全て拾えます。特定のツールだけを
+観測したい場合は `matcher` を絞ってください（例: `"^(write_file|apply_diff)$"`）。
+
+**サブエージェントは `spawn_subagent` というツールとして現れます。** Bob には
+サブエージェント専用の lifecycle イベントがないため、委譲の観測は
+`PreToolUse` / `PostToolUse` の `tool_name=spawn_subagent` で行います。
 
 なお Bob は `tool` / `input` / `output` というフィールド名を使いますが、
 アダプターが他エージェントと共通の `tool_name` / `tool_input` / `tool_output` に

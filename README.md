@@ -423,7 +423,7 @@ otel-hook setup --agent bob --no-global
 
 Bob spans are recorded with the canonical `gen_ai.client.name=bob`.
 
-**Events captured:** `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — the five lifecycle hooks Bob supports. Bob accepts `matcher` only on the two tool callbacks, so `setup` writes `matcher: ".*"` there and omits it elsewhere. Shell, file, and MCP activity all arrive through `PreToolUse`/`PostToolUse` with the appropriate `tool_name`.
+**Events captured:** `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — the five lifecycle hooks Bob supports. Tool names observed on a live Bob 2.0.2 install include `write_file`, `apply_diff`, `search_and_replace`, `insert_content`, `read_file`, `execute_command`, `spawn_subagent`, and `use_skill`; all are snake_case, so `matcher: ".*"` covers them. Subagent delegation surfaces as `tool_name=spawn_subagent` rather than a dedicated event, which is why the capability manifest lists no `subagent` support for Bob. Bob accepts `matcher` only on the two tool callbacks, so `setup` writes `matcher: ".*"` there and omits it elsewhere. Shell, file, and MCP activity all arrive through `PreToolUse`/`PostToolUse` with the appropriate `tool_name`.
 
 **Field mapping.** Bob sends `tool`, `input`, and `output` where every other agent
 sends `tool_name`, `tool_input`, and `tool_output`. The Bob adapter renames them,

@@ -199,6 +199,28 @@ class TestToolFieldMapping:
         assert [(r.kind, r.role, r.length) for r in event.conversation] == [("prompt", "user", 12)]
         assert "tool_input" not in event.to_lifecycle_data()
 
+    @pytest.mark.parametrize("tool_name", [
+        # Tool names observed in real IBM Bob logs on a live install.
+        "write_file", "apply_diff", "search_and_replace", "insert_content",
+        "spawn_subagent", "read_file", "execute_command", "use_skill",
+    ])
+    def test_real_bob_tool_names_survive_the_rename(self, tool_name):
+        data = self._normalize({
+            "event": "PreToolUse", "session_id": "ses_1", "tool": tool_name,
+        })
+        assert data["tool_name"] == tool_name
+
+    def test_camel_case_tool_fields_also_work(self):
+        """Bob's own logs use `toolName`; the shared alias table must cover it."""
+        data = self._normalize({
+            "event": "PreToolUse",
+            "session_id": "ses_1",
+            "toolName": "write_file",
+            "toolInput": {"path": "src/index.ts"},
+        })
+        assert data["tool_name"] == "write_file"
+        assert data["tool_input"] == {"path": "src/index.ts"}
+
     def test_existing_canonical_field_is_not_overwritten(self):
         data = self._normalize({
             "event": "PreToolUse",
