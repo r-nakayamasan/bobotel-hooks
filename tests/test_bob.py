@@ -14,6 +14,16 @@ def _read(path):
         return json.load(f)
 
 
+class RecordingSpan:
+    """Minimal span stand-in that records set_attribute calls."""
+
+    def __init__(self):
+        self.attributes = {}
+
+    def set_attribute(self, key, value):
+        self.attributes[key] = value
+
+
 def _stderr(result):
     """Return a result's stderr across click versions (<8.2 mixes it into output)."""
     try:
@@ -110,15 +120,30 @@ class TestToolFieldMapping:
         })
         assert data["tool_name"] == "already_set"
 
-    def test_tool_attributes_reach_the_span(self):
+    def test_renamed_fields_reach_the_span(self):
+        """The rename is only useful if the shared attribute map then picks it up."""
         data = self._normalize({
-            "event": "PreToolUse",
+            "event": "PostToolUse",
             "session_id": "ses_1",
             "tool": "write_file",
             "input": {"path": "src/index.ts"},
+            "output": "File written successfully",
         })
-        assert otel_hook._EVENT_ATTR_MAP["PreToolUse"]["tool_name"] == "gen_ai.client.tool_name"
-        assert data["tool_name"] == "write_file"
+        span = RecordingSpan()
+        for key, attr in otel_hook._EVENT_ATTR_MAP["PostToolUse"].items():
+            otel_hook._set_if_present(span, attr, data.get(key))
+        assert span.attributes["gen_ai.client.tool_name"] == "write_file"
+
+    def test_output_is_not_recorded_as_a_shell_stream(self):
+        """Bob's `output` is a tool result, not shell stdout — the rename prevents that."""
+        data = self._normalize({
+            "event": "PostToolUse",
+            "session_id": "ses_1",
+            "tool": "write_file",
+            "output": "File written successfully",
+        })
+        assert "output" not in data
+        assert data["tool_output"] == "File written successfully"
 
 
 # ---------------------------------------------------------------------------
