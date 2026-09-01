@@ -143,6 +143,18 @@ hook 自身の設定ファイルを編集します。pip / pipx インストー�
 }
 ```
 
+> **`http/protobuf` / `http/json` を使う場合はパスまで書いてください。**
+> このフックはエンドポイントを**そのまま**エクスポーターに渡すため、
+> OTel SDK による `/v1/traces` の自動補完が働きません。実測で確認しました。
+>
+> | 設定値 | 実際の POST 先 |
+> |---|---|
+> | `http://collector:4318` | `/` → 実コレクターでは **404** |
+> | `http://collector:4318/v1/traces` | `/v1/traces` → 正常 |
+>
+> 既定の `grpc` ではこの問題は起きません。HTTP を使う場合、パスを忘れると
+> Bob は hook の失敗を黙って無視するので**全損に気づけません**。
+
 #### 主な設定項目
 
 | 変数 | 説明 | 既定値 |
@@ -458,7 +470,37 @@ done
 出ることがありますが、これは stdout ではないため上のチェックには影響しません。
 むしろ「エラーが出ても stdout は汚れない」ことの確認になります。
 
-### 5-4. 実際の Bob セッションで確認
+### 5-4. 送信先まで届いているかを確認する
+
+エンドポイントを設定したら、実際に**ネットワークに出ているか**を確かめます。
+コレクターが無くても、手元に受け口を立てれば確認できます。
+
+```bash
+# 受け口を 8 秒だけ立てる
+python3 - <<'EOF' &
+import http.server, threading, time
+got=[]
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        n=int(self.headers.get('Content-Length',0)); self.rfile.read(n)
+        got.append((self.path, n)); self.send_response(200)
+        self.send_header('Content-Length','0'); self.end_headers()
+    def log_message(self,*a): pass
+srv=http.server.HTTPServer(('127.0.0.1',4318),H)
+threading.Thread(target=srv.serve_forever,daemon=True).start()
+time.sleep(8); srv.shutdown()
+print("受信:", got)
+EOF
+sleep 1
+
+# その受け口に向けて 1 イベント送る
+echo '{"hook_event_name":"Stop","session_id":"wire-test","last_assistant_message":"x"}'   | env OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318/v1/traces         OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf         IDE_OTEL_DISABLE_BATCH=true         otel-hook --bob
+wait
+```
+
+`受信: [('/v1/traces', 1128)]` のように protobuf のボディが届けば送信経路は正常です。
+
+### 5-5. 実際の Bob セッションで確認
 
 Bob で1ターン動かし、バックエンドに `gen_ai.client.name=bob` の span が
 届いていることを確認します。届かない場合は[8章](#8-トラブルシューティング)へ。

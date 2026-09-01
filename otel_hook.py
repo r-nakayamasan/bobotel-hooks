@@ -4716,7 +4716,11 @@ def _apply_genai_semconv(span, event_name: str, data: dict, ide: str, session_ct
         model = session_ctx.get("last_known_model")
     if not model:
         model = batch_model
-    if not model:
+    if not model and ide in {"claude", "cursor", "windsurf", "copilot"}:
+        # CLAUDE_MODEL / ANTHROPIC_MODEL describe Claude, so only fall back to
+        # them for runners that actually drive Claude. A machine that has these
+        # exported would otherwise make every other agent's spans claim a Claude
+        # model — observed on a real Bob run inside a Claude Code shell.
         model = os.getenv("CLAUDE_MODEL") or os.getenv("ANTHROPIC_MODEL")
 
     _set_if_present(span, "gen_ai.request.model", model)

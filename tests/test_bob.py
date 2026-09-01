@@ -329,6 +329,45 @@ class TestClientNameSurvivesSharedPayloadFields:
         assert names == {"bob"}, f"inconsistent client names across one turn: {names}"
 
 
+class TestModelIsNotBorrowedFromClaudeEnv:
+    """Bob spans must not claim a Claude model just because the env names one.
+
+    A live Bob run inside a Claude Code shell reported
+    gen_ai.request.model=claude-opus-5[1m], picked up from ANTHROPIC_MODEL.
+    """
+
+    def _model_attr(self, ide, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_MODEL", "claude-opus-5[1m]")
+        monkeypatch.delenv("CLAUDE_MODEL", raising=False)
+        span = RecordingSpan()
+        otel_hook._apply_genai_semconv(
+            span, "PostToolUse",
+            {"session_id": "s1", "hook_event_name": "PostToolUse", "tool_name": "write_file"},
+            ide,
+        )
+        return span.attributes.get("gen_ai.request.model")
+
+    def test_bob_does_not_inherit_anthropic_model(self, monkeypatch):
+        assert self._model_attr("bob", monkeypatch) is None
+
+    @pytest.mark.parametrize("ide", ["codex", "gemini", "opencode"])
+    def test_other_unrelated_agents_do_not_inherit_it_either(self, ide, monkeypatch):
+        assert self._model_attr(ide, monkeypatch) is None
+
+    def test_claude_still_uses_the_fallback(self, monkeypatch):
+        assert self._model_attr("claude", monkeypatch) == "claude-opus-5[1m]"
+
+    def test_payload_model_always_wins(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_MODEL", "claude-opus-5[1m]")
+        span = RecordingSpan()
+        otel_hook._apply_genai_semconv(
+            span, "UserPromptSubmit",
+            {"session_id": "s1", "hook_event_name": "UserPromptSubmit", "model": "bob-model-x"},
+            "bob",
+        )
+        assert span.attributes["gen_ai.request.model"] == "bob-model-x"
+
+
 # ---------------------------------------------------------------------------
 # Detection
 # ---------------------------------------------------------------------------
