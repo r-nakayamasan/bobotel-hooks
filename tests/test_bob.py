@@ -465,6 +465,36 @@ class TestSetupBob:
         assert "bob" in otel_hook._agent_config_paths(False, ".")
 
 
+class TestDuplicateRegistrationIsNotDeduplicated:
+    """Registering in both the policy and a user's settings double-counts.
+
+    Policy-enforced hooks run in addition to user hooks, not instead of them, so
+    an event delivered twice produces two spans. Measured, and documented as a
+    pre-rollout check rather than silently absorbed — callers need to know the
+    hook does not deduplicate repeated tool callbacks.
+    """
+
+    def test_repeated_tool_callback_is_not_treated_as_duplicate(self):
+        ctx = {"current_generation": "gen-1"}
+        dedup = otel_hook.SessionEventDeduplicator(ctx, "gen-1", 0)
+        data = {
+            "session_id": "d1",
+            "hook_event_name": "PreToolUse",
+            "tool_name": "write_file",
+            "tool_use_id": "tooluse_X",
+        }
+        # Without an invocation id, PreToolUse/PostToolUse are not deduplicated.
+        assert dedup.is_duplicate("PreToolUse", data, None) is False
+        assert dedup.is_duplicate("PreToolUse", data, None) is False
+
+    def test_an_invocation_id_does_deduplicate(self):
+        ctx = {"current_generation": "gen-1"}
+        dedup = otel_hook.SessionEventDeduplicator(ctx, "gen-1", 0)
+        data = {"session_id": "d1", "hook_event_name": "PostToolUse"}
+        assert dedup.is_duplicate("PostToolUse", data, "inv-1") is False
+        assert dedup.is_duplicate("PostToolUse", data, "inv-1") is True
+
+
 # ---------------------------------------------------------------------------
 # enforcedHooks group policy
 # ---------------------------------------------------------------------------

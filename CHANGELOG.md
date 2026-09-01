@@ -20,6 +20,7 @@
 - Stopped `_detect_payload_client_name` from claiming Bob payloads as Claude Code. Its generic "PascalCase event name means Claude" rule matched Bob's lifecycle names; Bob is now discriminated on the bare `event` key that Claude Code does not use.
 
 ### Notes
+- Documented that policy-enforced hooks run *in addition to* user hooks, so registering `otel-hook` in both Bob's `enforcedHooks` policy and a user's own `settings.json` records every event twice. Measured: the hook's session-backed idempotency covers provider-supplied event ids for a few event types but not repeated tool callbacks, so the duplicate is not absorbed. The Japanese guide's pre-rollout checklist covers clearing the user-side registration first.
 - Bob has no `SessionEnd`. Its `Stop` is a turn boundary, so it maps to generation end and is deliberately not mapped to `SessionEnd`; the session root span is emitted by the existing stale-session TTL flush. Lower `IDE_OTEL_STATE_TTL_SECONDS` for Bob deployments.
 
 ## 0.14.0 (2026-07-22)
