@@ -1116,9 +1116,9 @@ def _detect_payload_client_name(data: dict, include_session_fallback: bool = Fal
     return None
 
 
-def _detect_agent_engine(data: dict) -> Optional[str]:
-    """Detect an inner agent engine without consulting IDE_OTEL_IDE_NAME."""
-    explicit = _normalize_ide_name(_first_present(
+def _explicit_payload_engine(data: dict) -> Optional[str]:
+    """Return an engine the payload names outright, as opposed to one inferred."""
+    return _normalize_ide_name(_first_present(
         data,
         (
             "agent_engine",
@@ -1127,6 +1127,26 @@ def _detect_agent_engine(data: dict) -> Optional[str]:
             "engine_name",
         ),
     ))
+
+
+def _ide_was_explicitly_declared() -> bool:
+    """Return whether the caller told us which agent this is.
+
+    True when `otel-hook --<agent>` stamped a source, when a legacy managed
+    config set IDE_OTEL_HOOK_SOURCE, or when IDE_OTEL_IDE_NAME is set. In those
+    cases the provider is known, so an engine merely *inferred* from generic
+    payload field names must not override it.
+    """
+    return bool(
+        _normalize_ide_name(_CLI_HOOK_SOURCE)
+        or _normalize_ide_name(os.getenv(_MANAGED_HOOK_SOURCE_ENV))
+        or _normalize_ide_name(os.getenv("IDE_OTEL_IDE_NAME"))
+    )
+
+
+def _detect_agent_engine(data: dict) -> Optional[str]:
+    """Detect an inner agent engine without consulting IDE_OTEL_IDE_NAME."""
+    explicit = _explicit_payload_engine(data)
     if explicit:
         return explicit
 
@@ -1177,6 +1197,18 @@ def _resolved_agent_engine(
 ) -> Optional[str]:
     payload = data or {}
     resolved = _detect_agent_engine(payload)
+    # Fields like `tool_response` and `last_assistant_message` are shared by
+    # Claude Code, IBM Bob and Codex, so shape heuristics cannot tell them apart.
+    # When the caller already declared the agent, trust that over the guess and
+    # keep only an engine the payload names outright (a real nested agent).
+    if (
+        resolved
+        and ide
+        and resolved != ide
+        and _ide_was_explicitly_declared()
+        and _explicit_payload_engine(payload) is None
+    ):
+        resolved = None
     if resolved and ide and resolved != ide and not _has_strong_engine_signal(payload, resolved):
         resolved = None
     if resolved:

@@ -570,6 +570,40 @@ Bob は終了コード 2 以外の非ゼロ終了（タイムアウトを含む�
 エラーにはならず**、テレメトリが欠落するだけです。だからこそ
 `otel-hook diagnose --agent bob` での確認が重要です。
 
+### 実機のペイロードは仕様書と異なる（重要）
+
+`bob run` で実測したところ、Bob 2.0.2 が hook に渡す JSON は**公式仕様書の
+記載と異なり、Claude Code と同じ形**でした。
+
+| 項目 | 仕様書の記載 | 実機 Bob 2.0.2 |
+|---|---|---|
+| イベント名のキー | `event` | **`hook_event_name`** |
+| ツール名 | `tool` | **`tool_name`** |
+| ツール入力 | `input` | **`tool_input`** |
+| ツール出力 | `output` | **`tool_response`** |
+| その他 | — | `cwd`, `source`, `tool_use_id`, `last_assistant_message` |
+
+実測した `PreToolUse` の生ペイロード:
+
+```json
+{
+  "session_id": "da7d1ea73a84368fbcf3cbdd6cc09e19",
+  "cwd": "/Users/you/project",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "write_file",
+  "tool_input": {"path": "hello.txt", "content": "hi\n", "line_count": 1},
+  "tool_use_id": "tooluse_I7h1pvcOcHopCD9AAV3nv5"
+}
+```
+
+**利用者側の対応は不要です。** アダプターは両方の形を受け付けます
+（仕様書どおりの `tool` / `input` / `output` が来た場合も変換します）。
+`cwd` が入っているためワークスペースとリポジトリの属性も自動で付きます。
+
+ただし**`--bob` フラグは必須**です。実機のペイロードは Claude Code と
+見分けがつかないため、フラグが無いと別エージェントとして誤検出されます。
+`otel-hook setup --agent bob` と `otel-hook policy --bob` は必ず付けて生成します。
+
 ### 取得できるイベント
 
 Bob がサポートするのは5つの lifecycle hook のみです。

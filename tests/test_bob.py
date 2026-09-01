@@ -268,6 +268,67 @@ class TestToolFieldMapping:
         assert data["tool_output"] == "File written successfully"
 
 
+class TestClientNameSurvivesSharedPayloadFields:
+    """An explicitly declared agent must not be relabelled by shape heuristics.
+
+    `tool_response` and `last_assistant_message` are sent by Claude Code, IBM Bob
+    and Codex alike, so inferring the provider from them mislabels spans. Real
+    Bob PostToolUse payloads carry `tool_response`, and before the fix every one
+    of them was exported as gen_ai.client.name=codex.
+    """
+
+    # Captured verbatim from a live IBM Bob 2.0.2 PostToolUse hook payload.
+    REAL_BOB_POST_TOOL_USE = {
+        "session_id": "da7d1ea73a84368fbcf3cbdd6cc09e19",
+        "cwd": "/tmp/project",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "write_file",
+        "tool_input": {"path": "hello.txt", "content": "hi\n", "line_count": 1},
+        "tool_response": "Created file: hello.txt",
+        "tool_use_id": "tooluse_I7h1pvcOcHopCD9AAV3nv5",
+    }
+
+    @pytest.mark.parametrize("ide", ["bob", "claude", "cursor", "codex", "copilot"])
+    def test_declared_agent_wins_over_inferred_engine(self, ide, monkeypatch):
+        monkeypatch.setattr(otel_hook, "_CLI_HOOK_SOURCE", ide)
+        resolved = otel_hook._resolve_client_name(ide, data=dict(self.REAL_BOB_POST_TOOL_USE))
+        assert resolved == ide
+
+    def test_stop_payload_keeps_declared_agent(self, monkeypatch):
+        monkeypatch.setattr(otel_hook, "_CLI_HOOK_SOURCE", "bob")
+        data = {"session_id": "s1", "hook_event_name": "Stop", "last_assistant_message": "done"}
+        assert otel_hook._resolve_client_name("bob", data=data) == "bob"
+
+    def test_explicitly_named_nested_engine_is_still_honoured(self, monkeypatch):
+        """A payload that names its engine outright is a real nested agent."""
+        monkeypatch.setattr(otel_hook, "_CLI_HOOK_SOURCE", "cursor")
+        data = {**self.REAL_BOB_POST_TOOL_USE, "agent_engine": "claude"}
+        assert otel_hook._resolve_client_name("cursor", data=data) == "claude"
+
+    def test_undeclared_source_keeps_heuristic_behaviour(self, monkeypatch):
+        """Without a declared source the existing inference is left untouched."""
+        monkeypatch.setattr(otel_hook, "_CLI_HOOK_SOURCE", None)
+        monkeypatch.delenv("IDE_OTEL_IDE_NAME", raising=False)
+        monkeypatch.delenv(otel_hook._MANAGED_HOOK_SOURCE_ENV, raising=False)
+        resolved = otel_hook._resolve_client_name("claude", data=dict(self.REAL_BOB_POST_TOOL_USE))
+        assert resolved == "codex"
+
+    def test_every_event_of_a_real_bob_turn_reports_bob(self, monkeypatch):
+        """All five payloads from the captured live turn must agree on the client."""
+        monkeypatch.setattr(otel_hook, "_CLI_HOOK_SOURCE", "bob")
+        turn = [
+            {"session_id": "s1", "cwd": "/tmp/p", "hook_event_name": "SessionStart", "source": "startup"},
+            {"session_id": "s1", "cwd": "/tmp/p", "hook_event_name": "UserPromptSubmit", "prompt": "hi"},
+            {"session_id": "s1", "cwd": "/tmp/p", "hook_event_name": "PreToolUse",
+             "tool_name": "write_file", "tool_input": {"path": "a"}, "tool_use_id": "t1"},
+            dict(self.REAL_BOB_POST_TOOL_USE),
+            {"session_id": "s1", "cwd": "/tmp/p", "hook_event_name": "Stop",
+             "last_assistant_message": "done"},
+        ]
+        names = {otel_hook._resolve_client_name("bob", data=dict(p)) for p in turn}
+        assert names == {"bob"}, f"inconsistent client names across one turn: {names}"
+
+
 # ---------------------------------------------------------------------------
 # Detection
 # ---------------------------------------------------------------------------
