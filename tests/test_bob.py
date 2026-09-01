@@ -1,6 +1,7 @@
 """IBM Bob adapter: field mapping, stdout silence, setup, and enforcedHooks policy."""
 import json
 import os
+import sys
 
 import pytest
 from click.testing import CliRunner
@@ -68,6 +69,93 @@ class TestStdoutSilence:
         result = CliRunner().invoke(cli, ["--bob"], input=payload)
         assert result.exit_code == 0
         assert result.output == "", f"{event} leaked stdout: {result.output!r}"
+
+
+class TestDebugConsoleGoesToStderr:
+    """IDE_OTEL_DEBUG_CONSOLE must not write spans to Bob's stdout.
+
+    ConsoleSpanExporter defaults to sys.stdout, and Bob feeds hook stdout into
+    the model context, so debug output has to be routed to stderr instead.
+    """
+
+    def test_bob_declares_stdout_model_visible(self):
+        assert otel_hook._stdout_is_model_visible("bob") is True
+
+    @pytest.mark.parametrize("ide", ["claude", "cursor", "codex", "copilot", "gemini", "opencode"])
+    def test_other_providers_keep_stdout(self, ide):
+        assert otel_hook._stdout_is_model_visible(ide) is False
+
+    def test_unknown_provider_defaults_to_stdout(self):
+        assert otel_hook._stdout_is_model_visible("something-new") is False
+        assert otel_hook._stdout_is_model_visible(None) is False
+
+    def test_stream_selection(self):
+        assert otel_hook._debug_console_stream("bob") is sys.stderr
+        assert otel_hook._debug_console_stream("claude") is sys.stdout
+
+    def test_span_exporter_is_constructed_with_stderr(self, monkeypatch):
+        """Assert the real exporter object is handed stderr, not just the helper."""
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import ConsoleSpanExporter
+
+        monkeypatch.setattr(otel_hook, "_CONSOLE_EXPORTER_REGISTERED", False)
+        provider = TracerProvider()
+        monkeypatch.setattr(otel_hook.trace, "get_tracer_provider", lambda: provider)
+
+        captured = {}
+        real_init = ConsoleSpanExporter.__init__
+
+        def spy(self, *args, **kwargs):
+            captured["out"] = kwargs.get("out")
+            return real_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(ConsoleSpanExporter, "__init__", spy)
+        otel_hook._enable_console_exporter("bob")
+        assert captured["out"] is sys.stderr
+
+    def test_span_exporter_keeps_stdout_for_claude(self, monkeypatch):
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import ConsoleSpanExporter
+
+        monkeypatch.setattr(otel_hook, "_CONSOLE_EXPORTER_REGISTERED", False)
+        provider = TracerProvider()
+        monkeypatch.setattr(otel_hook.trace, "get_tracer_provider", lambda: provider)
+
+        captured = {}
+        real_init = ConsoleSpanExporter.__init__
+
+        def spy(self, *args, **kwargs):
+            captured["out"] = kwargs.get("out")
+            return real_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(ConsoleSpanExporter, "__init__", spy)
+        otel_hook._enable_console_exporter("claude")
+        assert captured["out"] is sys.stdout
+
+    def test_emitted_span_json_lands_on_stderr_not_stdout(self, monkeypatch, capfd):
+        """End-to-end: ending a span with the Bob console exporter writes to stderr.
+
+        Uses capfd, not capsys: ConsoleSpanExporter binds its default ``out`` to
+        sys.stdout when the class is defined, so a regression to the no-argument
+        form would write past a capsys capture and the stdout assertion would
+        pass for the wrong reason. capfd captures the real file descriptor.
+        """
+        pytest.importorskip("opentelemetry.sdk.trace")
+        from opentelemetry.sdk.trace import TracerProvider
+
+        monkeypatch.setattr(otel_hook, "_CONSOLE_EXPORTER_REGISTERED", False)
+        provider = TracerProvider()
+        monkeypatch.setattr(otel_hook.trace, "get_tracer_provider", lambda: provider)
+        otel_hook._enable_console_exporter("bob")
+
+        provider.get_tracer("t").start_span("gen_ai.client.hook.Stop").end()
+        provider.force_flush()
+
+        out, err = capfd.readouterr()
+        assert "gen_ai.client.hook.Stop" not in out, f"span leaked to stdout: {out!r}"
+        assert "gen_ai.client.hook.Stop" in err
 
 
 # ---------------------------------------------------------------------------

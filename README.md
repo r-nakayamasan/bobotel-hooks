@@ -449,6 +449,11 @@ For Bob deployments, lower that TTL so session spans land promptly:
 IDE_OTEL_STATE_TTL_SECONDS=3600
 ```
 
+**Debug console output goes to stderr.** `IDE_OTEL_DEBUG_CONSOLE=true` attaches
+OpenTelemetry's console exporters, which write to stdout by default. Because Bob
+feeds hook stdout into the model context, those exporters are pointed at stderr
+for Bob (and a warning records that they were). Other agents keep stdout.
+
 **A failing hook fails quietly.** Bob treats any non-zero exit other than 2 — a
 timeout included — as a non-blocking failure that is only logged. A broken hook
 command therefore produces missing telemetry rather than a visible error, so

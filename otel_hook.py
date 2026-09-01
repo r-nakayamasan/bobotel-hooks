@@ -2463,7 +2463,7 @@ def _init_sdk_logger_provider(resource_attrs: dict, disable_batch: bool) -> bool
     return True
 
 
-def _enable_console_exporter() -> None:
+def _enable_console_exporter(ide: Optional[str] = None) -> None:
     global _CONSOLE_EXPORTER_REGISTERED
     if _CONSOLE_EXPORTER_REGISTERED:
         return
@@ -2475,11 +2475,18 @@ def _enable_console_exporter() -> None:
         return
     provider = trace.get_tracer_provider()
     if isinstance(provider, TracerProvider):
-        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+        out = _debug_console_stream(ide)
+        if out is not sys.stdout:
+            _LOGGER.warning(
+                "IDE_OTEL_DEBUG_CONSOLE: writing spans to stderr because %s feeds "
+                "hook stdout into the model context",
+                ide,
+            )
+        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter(out=out)))
         _CONSOLE_EXPORTER_REGISTERED = True
 
 
-def _enable_console_log_exporter() -> None:
+def _enable_console_log_exporter(ide: Optional[str] = None) -> None:
     """Add a console exporter to the LoggerProvider for debugging."""
     try:
         from opentelemetry.sdk._logs import LoggerProvider as SDKLoggerProvider
@@ -2494,7 +2501,8 @@ def _enable_console_log_exporter() -> None:
         return
     provider = get_logger_provider()
     if isinstance(provider, SDKLoggerProvider):
-        provider.add_log_record_processor(SimpleLogRecordProcessor(ConsoleExporter()))
+        exporter = ConsoleExporter(out=_debug_console_stream(ide))
+        provider.add_log_record_processor(SimpleLogRecordProcessor(exporter))
 
 
 def _span_to_dict(span) -> dict:
@@ -2686,9 +2694,9 @@ def _init_tracing(
     if not endpoint:
         _LOGGER.warning("OTEL_EXPORTER_OTLP_ENDPOINT not set — exports may fail")
     if _safe_bool(os.getenv("IDE_OTEL_DEBUG_CONSOLE", "")):
-        _enable_console_exporter()
+        _enable_console_exporter(ide)
         if _LOGS_INITIALIZED:
-            _enable_console_log_exporter()
+            _enable_console_log_exporter(ide)
 
     _TRACING_INITIALIZED = True
     return True
@@ -3494,6 +3502,11 @@ class GovernanceResponse:
 class HookResponseAdapter:
     """Runner-specific adapter for stdout response envelopes."""
 
+    # True when the runner feeds a hook's stdout back into the model's context.
+    # Anything written to stdout is then part of the prompt, so debug output has
+    # to go to stderr instead.  See BobHookResponseAdapter.
+    stdout_is_model_visible = False
+
     def build_payload(
         self,
         event_name: str,
@@ -3559,6 +3572,8 @@ class BobHookResponseAdapter(HookResponseAdapter):
     including for governance responses.
     """
 
+    stdout_is_model_visible = True
+
     def build_payload(
         self,
         event_name: str,
@@ -3577,6 +3592,23 @@ _HOOK_RESPONSE_ADAPTERS = {
 
 def _response_adapter_for(ide: str) -> HookResponseAdapter:
     return _HOOK_RESPONSE_ADAPTERS.get(ide, _DEFAULT_HOOK_RESPONSE_ADAPTER)
+
+
+def _stdout_is_model_visible(ide: Optional[str]) -> bool:
+    """Return whether this runner injects hook stdout into the model's context."""
+    return _response_adapter_for(ide or "").stdout_is_model_visible
+
+
+def _debug_console_stream(ide: Optional[str]):
+    """Pick the stream the ``IDE_OTEL_DEBUG_CONSOLE`` exporters should write to.
+
+    Defaults to stdout, matching the OpenTelemetry console exporters, but falls
+    back to stderr for runners that would otherwise paste span JSON into the
+    model's prompt.
+    """
+    if _stdout_is_model_visible(ide):
+        return sys.stderr
+    return sys.stdout
 
 
 def _stdout_response(

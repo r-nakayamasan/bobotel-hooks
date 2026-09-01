@@ -339,13 +339,29 @@ IDE_OTEL_LOG_EVENTS=true
 tail -f ~/.local/share/opentelemetry-hooks/otel_hook.log
 ```
 
-> **`IDE_OTEL_DEBUG_CONSOLE=true` は Bob では使わないでください。**
-> このオプションは span を **stdout** に出力する設計です。Bob は
-> `SessionStart` / `UserPromptSubmit` の stdout をモデルのコンテキストに
-> 注入するため、原理的にプロンプトを汚染しうる唯一の設定です。
-> 手元の検証では実際に出力されることは確認できませんでしたが、
-> リスクを取る理由がないので、ローカル検証でも `IDE_OTEL_LOCAL_SPANS`
-> （ファイル出力）と上記のログを使ってください。
+`IDE_OTEL_DEBUG_CONSOLE=true` で span を端末に流すこともできます。
+
+```bash
+IDE_OTEL_DEBUG_CONSOLE=true
+```
+
+> **Bob では出力先が stdout ではなく stderr になります。**
+> OpenTelemetry の `ConsoleSpanExporter` は既定で **stdout** に書きますが、
+> Bob は `SessionStart` / `UserPromptSubmit` の stdout をモデルのコンテキストに
+> 注入するため、そのままではプロンプトに span JSON が貼り込まれてしまいます。
+> そこで Bob の場合は自動的に stderr へ切り替わります（切り替わった旨が
+> ログに warning として記録されます）。他のエージェントでは従来どおり stdout です。
+>
+> したがって Bob でデバッグ出力を見るときは stderr を見てください。
+
+```bash
+# span を端末で見る（stderr に出る）
+echo '{"event":"Stop","session_id":"dbg1"}' | \
+  env IDE_OTEL_DEBUG_CONSOLE=true otel-hook --bob 2>&1 >/dev/null
+```
+
+腰を据えて調べる場合は `IDE_OTEL_LOCAL_SPANS`（ファイル出力）のほうが
+後から検索・比較できるので便利です。
 
 #### 後片付け
 

@@ -15,6 +15,7 @@
 - Registered Bob's hooks with an explicit `timeout: 30` instead of Bob's 10-second default, which a cold Python start plus an OTLP flush can exceed. Bob only logs a hook timeout, so a short value drops telemetry silently.
 
 ### Fixed
+- Routed the `IDE_OTEL_DEBUG_CONSOLE` span and log console exporters to stderr for runners whose stdout is model-visible. OpenTelemetry's console exporters default to stdout, so enabling debug output under Bob would have pasted span JSON into the prompt. Providers now declare this through `HookResponseAdapter.stdout_is_model_visible`, so the protection follows the adapter rather than a hardcoded provider check.
 - Stopped `_detect_payload_client_name` from claiming Bob payloads as Claude Code. Its generic "PascalCase event name means Claude" rule matched Bob's lifecycle names; Bob is now discriminated on the bare `event` key that Claude Code does not use.
 
 ### Notes
