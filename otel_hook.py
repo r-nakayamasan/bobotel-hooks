@@ -1586,15 +1586,16 @@ class BobEventAdapter(ProviderEventAdapter):
 
     def _normalize_provider_fields(self, event_name: str, data: dict) -> None:
         """Rename Bob's generic tool fields, scoped to the two tool callbacks."""
+        # Rename before delegating: the shared MCP normalization in super() reads
+        # `tool_name`, so it would see nothing if the rename ran afterwards.
+        # Scope matters too — `output` is otherwise picked up by _emit_shell_log
+        # as a stdout stream, and `input` is a UserPromptSubmit prompt fallback
+        # key in _conversation_records.  Bob only sends these on the tool events.
+        if event_name in {"PreToolUse", "PostToolUse"}:
+            for source, target in self._TOOL_FIELD_ALIASES.items():
+                if source in data and data.get(target) is None:
+                    data[target] = data.pop(source)
         super()._normalize_provider_fields(event_name, data)
-        # Scope matters: `output` is otherwise picked up by _emit_shell_log as a
-        # stdout stream, and `input` is a UserPromptSubmit prompt fallback key in
-        # _conversation_records.  Bob only sends these on PreToolUse/PostToolUse.
-        if event_name not in {"PreToolUse", "PostToolUse"}:
-            return
-        for source, target in self._TOOL_FIELD_ALIASES.items():
-            if source in data and data.get(target) is None:
-                data[target] = data.pop(source)
 
 
 _DEFAULT_EVENT_ADAPTER = ProviderEventAdapter()

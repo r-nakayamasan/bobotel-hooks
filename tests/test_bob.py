@@ -134,6 +134,18 @@ class TestToolFieldMapping:
             otel_hook._set_if_present(span, attr, data.get(key))
         assert span.attributes["gen_ai.client.tool_name"] == "write_file"
 
+    def test_mcp_encoded_tool_name_yields_mcp_identity(self):
+        """The rename must precede shared MCP normalization, which reads tool_name."""
+        data = self._normalize({
+            "event": "PreToolUse",
+            "session_id": "ses_1",
+            "tool": "mcp__github__create_issue",
+            "input": {"title": "x"},
+        })
+        assert data["tool_name"] == "mcp__github__create_issue"
+        assert data["mcp_server"] == "github"
+        assert data["mcp_tool"] == "create_issue"
+
     def test_output_is_not_recorded_as_a_shell_stream(self):
         """Bob's `output` is a tool result, not shell stdout — the rename prevents that."""
         data = self._normalize({
