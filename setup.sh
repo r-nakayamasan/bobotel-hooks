@@ -17,6 +17,8 @@
 #   bash setup.sh --codex --global   # Codex global (~/.codex/hooks.json)
 #   bash setup.sh --opencode         # OpenCode project-level (.opencode/plugins/)
 #   bash setup.sh --opencode --global # OpenCode global (~/.config/opencode/plugins/)
+#   bash setup.sh --bob              # IBM Bob project-level (.bob/settings.json)
+#   bash setup.sh --bob --global     # IBM Bob global (~/.bob/settings/settings.json)
 #   bash setup.sh --reinstall        # pipx install --force . then register hooks
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -68,11 +70,21 @@ CODEX_EVENTS=(
   PostToolUse UserPromptSubmit Stop
 )
 
-REPO_MARKERS=(.git .github .cursor .claude .opencode .gemini .codex)
+BOB_EVENTS=(
+  SessionStart UserPromptSubmit
+  PreToolUse PostToolUse Stop
+)
+
+REPO_MARKERS=(.git .github .cursor .claude .opencode .gemini .codex .bob)
 
 # Events that require a matcher (Claude Code tool-related hooks)
 CLAUDE_MATCHER_EVENTS="PreToolUse PostToolUse PostToolUseFailure"
 GEMINI_MATCHER_EVENTS="BeforeAgent AfterAgent BeforeModel AfterModel BeforeTool AfterTool"
+# Bob accepts `matcher` only on its two tool callbacks.
+BOB_MATCHER_EVENTS="PreToolUse PostToolUse"
+# Bob's own default is 10s; a cold Python start plus an OTLP flush can exceed it,
+# and Bob only logs a timeout, so too small a value silently drops telemetry.
+BOB_HOOK_TIMEOUT=30
 
 # ─── Parse arguments ─────────────────────────────────────────────────────────
 DO_CURSOR=""
@@ -81,11 +93,13 @@ DO_CLAUDE=""
 DO_OPENCODE=""
 DO_GEMINI=""
 DO_CODEX=""
+DO_BOB=""
 CURSOR_GLOBAL=""
 CLAUDE_GLOBAL=""
 OPENCODE_GLOBAL=""
 GEMINI_GLOBAL=""
 CODEX_GLOBAL=""
+BOB_GLOBAL=""
 WANT_GLOBAL=""
 DO_REINSTALL=""
 DO_CLEAN=""
@@ -100,6 +114,7 @@ while [[ $# -gt 0 ]]; do
     --opencode)  DO_OPENCODE=1; shift ;;
     --gemini)    DO_GEMINI=1; shift ;;
     --codex)      DO_CODEX=1; shift ;;
+    --bob)        DO_BOB=1; shift ;;
     --global)    WANT_GLOBAL=1; shift ;;
     --reinstall) DO_REINSTALL=1; shift ;;
     --clean)     DO_CLEAN=1; shift ;;
@@ -113,8 +128,8 @@ done
 # Requiring an explicit IDE flag avoids accidentally installing global hooks
 # for IDEs the user did not intend to configure.
 if [[ -n "$WANT_GLOBAL" ]]; then
-  if [[ -z "$DO_CURSOR" && -z "$DO_COPILOT" && -z "$DO_CLAUDE" && -z "$DO_OPENCODE" && -z "$DO_GEMINI" && -z "$DO_CODEX" ]]; then
-    echo "Error: --global requires an explicit IDE flag (--cursor, --copilot, --claude, --gemini, --codex, or --opencode)."
+  if [[ -z "$DO_CURSOR" && -z "$DO_COPILOT" && -z "$DO_CLAUDE" && -z "$DO_OPENCODE" && -z "$DO_GEMINI" && -z "$DO_CODEX" && -z "$DO_BOB" ]]; then
+    echo "Error: --global requires an explicit IDE flag (--cursor, --copilot, --claude, --gemini, --codex, --opencode, or --bob)."
     exit 1
   fi
   if [[ -n "$DO_COPILOT" ]]; then
@@ -126,10 +141,11 @@ if [[ -n "$WANT_GLOBAL" ]]; then
   [[ -n "$DO_OPENCODE" ]] && OPENCODE_GLOBAL=1
   [[ -n "$DO_GEMINI" ]]   && GEMINI_GLOBAL=1
   [[ -n "$DO_CODEX" ]]    && CODEX_GLOBAL=1
+  [[ -n "$DO_BOB" ]]      && BOB_GLOBAL=1
 fi
 
 # Auto-detect if no IDE flags given (applies both for setup and for operational commands)
-if [[ -z "$DO_CURSOR" && -z "$DO_COPILOT" && -z "$DO_CLAUDE" && -z "$DO_OPENCODE" && -z "$DO_GEMINI" && -z "$DO_CODEX" ]]; then
+if [[ -z "$DO_CURSOR" && -z "$DO_COPILOT" && -z "$DO_CLAUDE" && -z "$DO_OPENCODE" && -z "$DO_GEMINI" && -z "$DO_CODEX" && -z "$DO_BOB" ]]; then
   # Check for a .cursor workspace directory in the current or parent directories,
   # or fallback to cursor being installed on PATH or in $HOME.
   CURSOR_DIR_FOUND=""
@@ -174,11 +190,16 @@ if [[ -z "$DO_CURSOR" && -z "$DO_COPILOT" && -z "$DO_CLAUDE" && -z "$DO_OPENCODE
     DO_CODEX=1
     CODEX_GLOBAL=1
   fi
-  if [[ -z "$DO_CURSOR" && -z "$DO_COPILOT" && -z "$DO_CLAUDE" && -z "$DO_OPENCODE" && -z "$DO_GEMINI" && -z "$DO_CODEX" ]]; then
+  # Check if IBM Bob is installed
+  if command -v bob &>/dev/null || [ -d "$HOME/.bob" ]; then
+    DO_BOB=1
+    BOB_GLOBAL=1
+  fi
+  if [[ -z "$DO_CURSOR" && -z "$DO_COPILOT" && -z "$DO_CLAUDE" && -z "$DO_OPENCODE" && -z "$DO_GEMINI" && -z "$DO_CODEX" && -z "$DO_BOB" ]]; then
     if [[ -n "$DO_CLEAN" || -n "$DO_UNINSTALL" || -n "$DO_DIAGNOSE" ]]; then
-      echo "No supported IDE detected. Use --cursor, --copilot, --claude, --gemini, --codex, or --opencode to target a specific IDE."
+      echo "No supported IDE detected. Use --cursor, --copilot, --claude, --gemini, --codex, --opencode, or --bob to target a specific IDE."
     else
-      echo "No supported IDE detected. Use --cursor, --copilot, --claude, --gemini, --codex, or --opencode to force setup."
+      echo "No supported IDE detected. Use --cursor, --copilot, --claude, --gemini, --codex, --opencode, or --bob to force setup."
     fi
     exit 1
   fi
@@ -1593,6 +1614,251 @@ setup_opencode() {
   fi
 }
 
+
+# ─── IBM Bob ──────────────────────────────────────────────────────────────────
+# Bob uses Claude Code's nested `matcher` + `hooks[]` shape, but only five events
+# and `matcher` on the two tool callbacks.  Its global settings live one level
+# deeper than the other agents: ~/.bob/settings/settings.json.
+bob_settings_path() {
+  if [[ -n "$BOB_GLOBAL" ]]; then
+    echo "$HOME/.bob/settings/settings.json"
+  else
+    local repo_root
+    repo_root="$(find_repo_root)"
+    echo "$repo_root/.bob/settings.json"
+  fi
+}
+
+bob_scope_label() {
+  if [[ -n "$BOB_GLOBAL" ]]; then echo "global"; else echo "project"; fi
+}
+
+diagnose_bob() {
+  local settings_json
+  settings_json="$(bob_settings_path)"
+  echo "🔍 IBM Bob ($(bob_scope_label): $settings_json)"
+
+  if [ ! -f "$settings_json" ]; then
+    echo "  ⏭️  Settings file not found"
+    return 0
+  fi
+
+  python3 -c "
+import json, sys
+
+with open(sys.argv[1]) as f:
+    try:
+        settings = json.load(f)
+    except json.JSONDecodeError:
+        print('  ⚠️  Settings file is not valid JSON')
+        raise SystemExit(0)
+
+hooks = settings.get('hooks', {})
+found = []
+for event, entries in hooks.items():
+    for entry in entries if isinstance(entries, list) else []:
+        for h in entry.get('hooks', []):
+            cmd = h.get('command', '')
+            if 'otel_hook' in cmd or 'otel-hook' in cmd:
+                found.append((event, cmd, h.get('timeout')))
+
+if not found:
+    print('  ⏭️  No OTel hook registrations found')
+else:
+    print(f'  ✅ {len(found)} OTel hook registrations')
+    for event, cmd, timeout in sorted(found):
+        suffix = f' (timeout={timeout}s)' if timeout else ''
+        print(f'     {event}: {cmd}{suffix}')
+" "$settings_json"
+}
+
+uninstall_bob() {
+  local settings_json
+  settings_json="$(bob_settings_path)"
+  echo "🗑️  IBM Bob ($(bob_scope_label): $settings_json)"
+
+  if [ ! -f "$settings_json" ]; then
+    echo "  ⏭️  Settings file not found — nothing to uninstall"
+    return 0
+  fi
+
+  python3 -c "
+import json, sys
+
+settings_path = sys.argv[1]
+with open(settings_path) as f:
+    try:
+        settings = json.load(f)
+    except json.JSONDecodeError:
+        print('  ⚠️  Settings file is not valid JSON — leaving it untouched')
+        raise SystemExit(0)
+
+hooks = settings.get('hooks', {})
+removed = 0
+for event in list(hooks.keys()):
+    kept = []
+    for entry in hooks[event]:
+        surviving = [
+            h for h in entry.get('hooks', [])
+            if 'otel-hook' not in h.get('command', '') and 'otel_hook' not in h.get('command', '')
+        ]
+        removed += len(entry.get('hooks', [])) - len(surviving)
+        if surviving:
+            entry['hooks'] = surviving
+            kept.append(entry)
+    hooks[event] = kept
+    if not hooks[event]:
+        del hooks[event]
+
+if removed:
+    with open(settings_path, 'w') as f:
+        json.dump(settings, f, indent=2)
+        f.write('\n')
+    print(f'  ✅ Removed {removed} OTel hook entries')
+else:
+    print('  ⏭️  No OTel hook entries to remove')
+" "$settings_json"
+}
+
+clean_bob() {
+  local settings_json
+  settings_json="$(bob_settings_path)"
+  echo "🧹 IBM Bob ($(bob_scope_label): $settings_json)"
+
+  if [ ! -f "$settings_json" ]; then
+    echo "  ⏭️  Settings file not found — nothing to clean"
+    return 0
+  fi
+
+  python3 -c "
+import json, os, shlex, sys
+
+def cmd_has_valid_path(cmd):
+    try:
+        parts = shlex.split(cmd)
+    except ValueError:
+        parts = [cmd]
+    abs_paths = [p for p in parts if p.startswith('/')]
+    if not abs_paths:
+        return True
+    return any(os.path.exists(p) or p.startswith('/usr/local') for p in abs_paths)
+
+settings_path = sys.argv[1]
+with open(settings_path) as f:
+    try:
+        settings = json.load(f)
+    except json.JSONDecodeError:
+        print('  ⚠️  Settings file is not valid JSON — leaving it untouched')
+        raise SystemExit(0)
+
+hooks = settings.get('hooks', {})
+stale = 0
+for event in list(hooks.keys()):
+    kept = []
+    for entry in hooks[event]:
+        surviving = []
+        for h in entry.get('hooks', []):
+            cmd = h.get('command', '')
+            if ('otel-hook' in cmd or 'otel_hook' in cmd) and not cmd_has_valid_path(cmd):
+                stale += 1
+                continue
+            surviving.append(h)
+        if surviving:
+            entry['hooks'] = surviving
+            kept.append(entry)
+    hooks[event] = kept
+    if not hooks[event]:
+        del hooks[event]
+
+if stale:
+    with open(settings_path, 'w') as f:
+        json.dump(settings, f, indent=2)
+        f.write('\n')
+    print(f'  ✅ Removed {stale} stale OTel hook entries')
+else:
+    print('  ⏭️  No stale OTel hook entries found')
+" "$settings_json"
+}
+
+setup_bob() {
+  local settings_json
+  settings_json="$(bob_settings_path)"
+  echo "📦 IBM Bob ($(bob_scope_label): $settings_json)"
+
+  mkdir -p "$(dirname "$settings_json")"
+
+  python3 -c "
+import json, os, sys
+
+settings_path = sys.argv[1]
+hook_cmd = sys.argv[2] + ' --bob'
+timeout = int(sys.argv[3])
+events = sys.argv[4:]
+matcher_events = set('$BOB_MATCHER_EVENTS'.split())
+
+if os.path.exists(settings_path):
+    with open(settings_path, 'r') as f:
+        try:
+            settings = json.load(f)
+        except json.JSONDecodeError:
+            settings = {}
+else:
+    settings = {}
+
+hooks = settings.setdefault('hooks', {})
+added, updated, skipped = [], [], []
+
+for event in events:
+    event_list = hooks.setdefault(event, [])
+    existing = [
+        h
+        for entry in event_list
+        for h in entry.get('hooks', [])
+        if 'otel_hook' in h.get('command', '') or 'otel-hook' in h.get('command', '')
+    ]
+
+    if existing:
+        changed = False
+        for hook in existing:
+            if hook.get('command') != hook_cmd:
+                hook['command'] = hook_cmd
+                changed = True
+            if hook.get('timeout') != timeout:
+                hook['timeout'] = timeout
+                changed = True
+            env = hook.get('env')
+            if isinstance(env, dict) and 'IDE_OTEL_IDE_NAME' in env:
+                env = dict(env)
+                env.pop('IDE_OTEL_IDE_NAME', None)
+                if env:
+                    hook['env'] = env
+                else:
+                    hook.pop('env', None)
+                changed = True
+        (updated if changed else skipped).append(event)
+        continue
+
+    hook_entry = {'hooks': [{'type': 'command', 'command': hook_cmd, 'timeout': timeout}]}
+    if event in matcher_events:
+        hook_entry['matcher'] = '.*'
+    event_list.append(hook_entry)
+    added.append(event)
+
+with open(settings_path, 'w') as f:
+    json.dump(settings, f, indent=2)
+    f.write('\n')
+
+if added:
+    print(f'  ✅ Added OTel hook to {len(added)} events: {\", \".join(added)}')
+if updated:
+    print(f'  ✅ Updated {len(updated)} existing events: {\", \".join(updated)}')
+if skipped:
+    print(f'  ⏭️  Already registered in {len(skipped)} events (no changes)')
+if not added and not updated:
+    print('  ✅ All hook events already registered — nothing to do')
+" "$settings_json" "$HOOK_CMD" "$BOB_HOOK_TIMEOUT" "${BOB_EVENTS[@]}"
+}
+
 # ─── Run setup for selected IDEs ────────────────────────────────────────────
 if [[ -n "$DO_DIAGNOSE" ]]; then
   echo "🔍 Diagnosing OTel hook registrations ..."
@@ -1601,6 +1867,7 @@ if [[ -n "$DO_DIAGNOSE" ]]; then
   [[ -n "$DO_COPILOT" ]] && diagnose_copilot
   [[ -n "$DO_GEMINI" ]] && diagnose_gemini
   [[ -n "$DO_CODEX" ]] && diagnose_codex
+  [[ -n "$DO_BOB" ]] && diagnose_bob
   exit 0
 fi
 
@@ -1611,6 +1878,7 @@ if [[ -n "$DO_UNINSTALL" ]]; then
   [[ -n "$DO_COPILOT" ]] && uninstall_copilot
   [[ -n "$DO_GEMINI" ]] && uninstall_gemini
   [[ -n "$DO_CODEX" ]] && uninstall_codex
+  [[ -n "$DO_BOB" ]] && uninstall_bob
   echo "✅ Uninstall complete!"
   exit 0
 fi
@@ -1622,6 +1890,7 @@ if [[ -n "$DO_CLEAN" ]]; then
   [[ -n "$DO_COPILOT" ]] && clean_copilot
   [[ -n "$DO_GEMINI" ]] && clean_gemini
   [[ -n "$DO_CODEX" ]] && clean_codex
+  [[ -n "$DO_BOB" ]] && clean_bob
   echo "✅ Cleaning complete!"
   exit 0
 fi
@@ -1656,6 +1925,11 @@ if [[ -n "$DO_CODEX" ]]; then
   echo ""
 fi
 
+if [[ -n "$DO_BOB" ]]; then
+  setup_bob
+  echo ""
+fi
+
 # ─── Kick off venv provisioning ─────────────────────────────────────────────
 echo "🚀 Bootstrapping Python venv (runs in background) ..."
 echo '{}' | python3 "$HOOK_DIR/otel_hook.py" > /dev/null 2>&1 || true
@@ -1683,6 +1957,10 @@ if [[ -n "$DO_OPENCODE" ]]; then
 fi
 if [[ -n "$DO_CODEX" ]]; then
   echo "  2. Restart Codex to activate hooks"
+fi
+if [[ -n "$DO_BOB" ]]; then
+  echo "  2. Restart IBM Bob to activate hooks"
+  echo "     For org-wide enforcement, see: otel-hook policy --bob --help"
 fi
 # Determine the hook home used for logging: prefer IDE_OTEL_HOOK_HOME, then
 # fall back to the system default for otel-hook, or the local script dir.

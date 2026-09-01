@@ -7,7 +7,7 @@
 
 > Observability for AI coding agents — any OTLP-compatible backend.
 
-An open-source OpenTelemetry integration that captures AI coding agent activity as structured **traces and logs** and exports them to any OTLP-compatible backend. Works with **any AI coding agent** — today: **Antigravity**, **Claude Code**, **Codex**, **Cursor IDE / Cursor CLI**, **Gemini CLI**, **GitHub Copilot**, **OpenCode**, and **Windsurf** — using [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/).
+An open-source OpenTelemetry integration that captures AI coding agent activity as structured **traces and logs** and exports them to any OTLP-compatible backend. Works with **any AI coding agent** — today: **Antigravity**, **Claude Code**, **Codex**, **Cursor IDE / Cursor CLI**, **Gemini CLI**, **GitHub Copilot**, **IBM Bob**, **OpenCode**, and **Windsurf** — using [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/).
 
 Every hook event — prompt submissions, tool calls, shell commands, MCP interactions, file edits, subagent orchestration — becomes an OpenTelemetry span you can query, alert on, and visualize in Jaeger, Grafana, Datadog, Honeycomb, Coralogix, or any OTLP-compatible backend.
 
@@ -15,7 +15,7 @@ Every hook event — prompt submissions, tool calls, shell commands, MCP interac
 
 ## How It Works
 
-The hook is a lightweight Python command that your IDE invokes on every agent event. The IDE pipes a JSON payload to stdin, the hook processes it, emits OpenTelemetry spans and logs, and returns the runner-compatible success response on stdout so the IDE proceeds normally. For most events that is `{"continue": true}`; Codex uses event-specific response contracts, so passive Codex hooks stay silent except for `Stop`, which still returns JSON. No sidecar, no daemon — just a command your IDE calls.
+The hook is a lightweight Python command that your IDE invokes on every agent event. The IDE pipes a JSON payload to stdin, the hook processes it, emits OpenTelemetry spans and logs, and returns the runner-compatible success response on stdout so the IDE proceeds normally. For most events that is `{"continue": true}`; Codex uses event-specific response contracts, so passive Codex hooks stay silent except for `Stop`, which still returns JSON. IBM Bob has no stdout response contract and injects hook stdout into the model context, so Bob hooks stay silent on every event. No sidecar, no daemon — just a command your IDE calls.
 
 ```
 IDE Event → stdin (JSON) → otel-hook → OpenTelemetry SDK → OTLP Backend
@@ -25,7 +25,7 @@ IDE Event → stdin (JSON) → otel-hook → OpenTelemetry SDK → OTLP Backend
 
 ## Features
 
-- **Multi-agent support**: One hook command, multiple agent integrations. The CLI can register Codex, Cursor, Claude Code, Gemini CLI, GitHub Copilot, OpenCode, and Windsurf. Managed setup commands stamp an explicit source flag such as `otel-hook --cursor`, `otel-hook --codex`, or `otel-hook --claude`; process-tree and payload inference remain compatibility fallbacks for legacy or unmanaged hooks.
+- **Multi-agent support**: One hook command, multiple agent integrations. The CLI can register Codex, Cursor, Claude Code, Gemini CLI, GitHub Copilot, IBM Bob, OpenCode, and Windsurf. Managed setup commands stamp an explicit source flag such as `otel-hook --cursor`, `otel-hook --codex`, or `otel-hook --claude`; process-tree and payload inference remain compatibility fallbacks for legacy or unmanaged hooks.
 
 - **Session-level Traces**: Groups all events within a session into a single trace with a 3-tier hierarchy:
 
@@ -65,6 +65,7 @@ gen_ai.client.session (root)
 | Claude Code | `otel-hook setup --agent claude` | Global by default; use `--no-global` for project scope | `~/.claude/settings.json` or `.claude/settings.json` |
 | Gemini CLI | `otel-hook setup --agent gemini` | Global by default; use `--no-global` for project scope | `~/.gemini/settings.json` or `.gemini/settings.json` |
 | GitHub Copilot coding agent | `otel-hook setup --agent copilot --no-global` | Repository only | `.github/hooks/otel-hooks.json` |
+| IBM Bob | `otel-hook setup --agent bob` | Global by default; use `--no-global` for project scope | `~/.bob/settings/settings.json` or `.bob/settings.json` |
 | OpenCode | `otel-hook setup --agent opencode` | Global by default; use `--no-global` for project scope | `~/.config/opencode/plugins/otel-hook.ts` or `.opencode/plugins/otel-hook.ts` |
 | Windsurf | `otel-hook setup --agent windsurf` | Global by default; use `--no-global` for project scope | `~/.codeium/windsurf/settings.json` or `.windsurf/settings.json` |
 | Antigravity / compatible runners | Manual hook command | Runner-defined | Runner workflow/config |
@@ -73,31 +74,33 @@ Run `otel-hook diagnose` to see what is currently registered. Run `otel-hook doc
 
 ## Supported Events
 
-| Canonical Name | Antigravity / Claude Code | Codex | Cursor IDE / CLI / Windsurf | Gemini CLI | GitHub Copilot | OpenCode (plugin) |
-|---|---|---|---|---|---|---|
-| `SessionStart` | `SessionStart` | `SessionStart` | `sessionStart` | `SessionStart` | `sessionStart` | `session.created` |
-| `SessionEnd` | `SessionEnd` | — | `sessionEnd` | `SessionEnd` | `sessionEnd` | `session.deleted`, `session.error` |
-| `UserPromptSubmit` | `UserPromptSubmit` | `UserPromptSubmit` | `beforeSubmitPrompt` | `BeforeModel` ¹ | `userPromptSubmitted` | `message.updated` (role=user) |
-| `PreToolUse` | `PreToolUse` | `PreToolUse` | `preToolUse` | `BeforeTool` | `preToolUse` | `tool.execute.before` ² |
-| `PermissionRequest` | — | `PermissionRequest` | — | — | — | — |
-| `PostToolUse` | `PostToolUse` | `PostToolUse` | `postToolUse` | `AfterTool` | `postToolUse` | `tool.execute.after` (exit=0) |
-| `PostToolUseFailure` | `PostToolUseFailure` | — | `postToolUseFailure` | — | — | `tool.execute.after` (exit≠0) |
-| `PreCompact` | `PreCompact` | — | — | — | — | — |
-| `PostCompact` | `PostCompact` | — | — | — | — | — |
-| `Stop` | `Stop` | `Stop` | `stop` | `AfterModel` ¹ | — | `session.idle` |
-| `SubagentStart` | `SubagentStart` | — | `subagentStart` | `BeforeAgent` | — | — ³ |
-| `SubagentStop` | `SubagentStop` | — | `subagentStop` | `AfterAgent` | — | — ³ |
-| `ErrorOccurred` | — | — | — | — | `errorOccurred` | — |
-| `BeforeShellExecution` | — | — | `beforeShellExecution` | — | — | — ² |
-| `AfterShellExecution` | — | — | `afterShellExecution` | — | — | — ² |
-| `BeforeMCPExecution` | — | — | `beforeMCPExecution` | — | — | — ² |
-| `AfterMCPExecution` | — | — | `afterMCPExecution` | — | — | — ² |
-| `BeforeReadFile` | — | — | `beforeReadFile` | — | — | — ² |
-| `AfterFileEdit` | — | — | `afterFileEdit` | — | — | `file.edited` |
+| Canonical Name | Antigravity / Claude Code | Codex | Cursor IDE / CLI / Windsurf | Gemini CLI | GitHub Copilot | IBM Bob | OpenCode (plugin) |
+|---|---|---|---|---|---|---|---|
+| `SessionStart` | `SessionStart` | `SessionStart` | `sessionStart` | `SessionStart` | `sessionStart` | `SessionStart` | `session.created` |
+| `SessionEnd` | `SessionEnd` | — | `sessionEnd` | `SessionEnd` | `sessionEnd` | — ⁴ | `session.deleted`, `session.error` |
+| `UserPromptSubmit` | `UserPromptSubmit` | `UserPromptSubmit` | `beforeSubmitPrompt` | `BeforeModel` ¹ | `userPromptSubmitted` | `UserPromptSubmit` | `message.updated` (role=user) |
+| `PreToolUse` | `PreToolUse` | `PreToolUse` | `preToolUse` | `BeforeTool` | `preToolUse` | `PreToolUse` | `tool.execute.before` ² |
+| `PermissionRequest` | — | `PermissionRequest` | — | — | — | — | — |
+| `PostToolUse` | `PostToolUse` | `PostToolUse` | `postToolUse` | `AfterTool` | `postToolUse` | `PostToolUse` | `tool.execute.after` (exit=0) |
+| `PostToolUseFailure` | `PostToolUseFailure` | — | `postToolUseFailure` | — | — | — | `tool.execute.after` (exit≠0) |
+| `PreCompact` | `PreCompact` | — | — | — | — | — | — |
+| `PostCompact` | `PostCompact` | — | — | — | — | — | — |
+| `Stop` | `Stop` | `Stop` | `stop` | `AfterModel` ¹ | — | `Stop` ⁴ | `session.idle` |
+| `SubagentStart` | `SubagentStart` | — | `subagentStart` | `BeforeAgent` | — | — | — ³ |
+| `SubagentStop` | `SubagentStop` | — | `subagentStop` | `AfterAgent` | — | — | — ³ |
+| `ErrorOccurred` | — | — | — | — | `errorOccurred` | — | — |
+| `BeforeShellExecution` | — | — | `beforeShellExecution` | — | — | — ⁵ | — ² |
+| `AfterShellExecution` | — | — | `afterShellExecution` | — | — | — ⁵ | — ² |
+| `BeforeMCPExecution` | — | — | `beforeMCPExecution` | — | — | — ⁵ | — ² |
+| `AfterMCPExecution` | — | — | `afterMCPExecution` | — | — | — ⁵ | — ² |
+| `BeforeReadFile` | — | — | `beforeReadFile` | — | — | — ⁵ | — ² |
+| `AfterFileEdit` | — | — | `afterFileEdit` | — | — | — ⁵ | `file.edited` |
 
 ¹ Gemini CLI uses `BeforeModel`/`AfterModel` where other agents use `UserPromptSubmit`/`Stop`; the hook normalizes both to canonical span names.<br>
 ² OpenCode routes bash, read, write, MCP, and all other tools through the universal `tool.execute.before/after` hooks, so these events are observable as `PreToolUse`/`PostToolUse` with the appropriate `tool_name`.<br>
-³ Subagent invocations surface as `PreToolUse`/`PostToolUse` with `tool_name=task` — there are no dedicated subagent hook events in OpenCode.
+³ Subagent invocations surface as `PreToolUse`/`PostToolUse` with `tool_name=task` — there are no dedicated subagent hook events in OpenCode.<br>
+⁴ Bob has no `SessionEnd`. Its `Stop` fires when the agent stops at the end of a turn, so it maps to generation end, not session end; the session root span is closed by the stale-session TTL flush instead. See [IBM Bob](#ibm-bob).<br>
+⁵ Bob routes every tool through `PreToolUse`/`PostToolUse`, so shell, file, and MCP activity is observable there with the appropriate `tool_name` rather than through dedicated events.
 
 ## Installation
 
@@ -165,12 +168,21 @@ vim ~/.local/share/opentelemetry-hooks/otel_config.json
 The setup functions are importable for programmatic use:
 
 ```python
-from otel_hook import setup_claude, setup_cursor, setup_gemini, setup_windsurf
+from otel_hook import setup_bob, setup_claude, setup_cursor, setup_gemini, setup_windsurf
 
 setup_claude(global_=True)   # ~/.claude/settings.json
 setup_cursor(global_=True)   # ~/.cursor/hooks.json
 setup_gemini(global_=True)   # ~/.gemini/settings.json
 setup_windsurf(global_=True) # ~/.codeium/windsurf/settings.json
+setup_bob(global_=True)      # ~/.bob/settings/settings.json
+```
+
+The IBM Bob `enforcedHooks` policy value is also available programmatically:
+
+```python
+from otel_hook import build_bob_enforced_hooks
+
+policy = build_bob_enforced_hooks(hook_cmd="/opt/otel-hook/bin/otel-hook")
 ```
 
 ### Source Checkout Setup
@@ -393,6 +405,85 @@ Restart OpenCode after installing. The bundled plugin — including the copy ins
 
 **Events captured:** `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure` (detected via `metadata.exit`), `Stop`, `AfterFileEdit`. Bash, read, write, MCP, and subagent (`task`) tool calls all flow through the universal `tool.execute.before/after` hooks and appear as `PreToolUse`/`PostToolUse` with the appropriate `tool_name`.
 
+#### IBM Bob
+
+Bob uses the same nested `matcher` + `hooks[]` config shape as Claude Code, in
+`~/.bob/settings/settings.json` (global) or `.bob/settings.json` (workspace):
+
+```bash
+# Global Bob settings (~/.bob/settings/settings.json)
+otel-hook setup --agent bob
+
+# Workspace-scoped Bob settings (.bob/settings.json)
+otel-hook setup --agent bob --no-global
+```
+
+Bob spans are recorded with the canonical `gen_ai.client.name=bob`.
+
+**Events captured:** `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — the five lifecycle hooks Bob supports. Bob accepts `matcher` only on the two tool callbacks, so `setup` writes `matcher: ".*"` there and omits it elsewhere. Shell, file, and MCP activity all arrive through `PreToolUse`/`PostToolUse` with the appropriate `tool_name`.
+
+**Field mapping.** Bob sends `tool`, `input`, and `output` where every other agent
+sends `tool_name`, `tool_input`, and `tool_output`. The Bob adapter renames them,
+scoped to the two tool callbacks — `output` would otherwise be read as a shell
+stdout stream, and `input` is a `UserPromptSubmit` prompt fallback key.
+
+**The hook is silent on stdout.** Bob injects a hook's stdout into the model
+context for `SessionStart` and `UserPromptSubmit`, and ignores it otherwise. Bob
+has no stdout response contract — it signals control decisions through exit code
+2 instead. Emitting the usual `{"continue": true}` envelope would therefore paste
+JSON into the prompt on every turn, so the Bob adapter writes nothing to stdout
+and always exits 0. This hook is observability-only and never blocks a prompt or
+a tool call.
+
+**No `SessionEnd`.** Bob's `Stop` fires when the agent stops at the end of a
+turn, so it is a generation boundary, not a session boundary, and is deliberately
+not mapped to `SessionEnd`. Nothing closes the session root span at the time the
+session actually ends; instead the stale-session TTL flush emits it once the
+session context goes untouched for `IDE_OTEL_STATE_TTL_SECONDS` (default 86400).
+For Bob deployments, lower that TTL so session spans land promptly:
+
+```bash
+IDE_OTEL_STATE_TTL_SECONDS=3600
+```
+
+**A failing hook fails quietly.** Bob treats any non-zero exit other than 2 — a
+timeout included — as a non-blocking failure that is only logged. A broken hook
+command therefore produces missing telemetry rather than a visible error, so
+verify with `otel-hook diagnose --agent bob` after rollout. For the same reason
+`setup` writes `timeout: 30` rather than relying on Bob's 10-second default,
+which a cold Python start plus an OTLP flush can exceed.
+
+##### Org-wide enforcement via the `enforcedHooks` group policy
+
+Bob's `enforcedHooks` group policy takes a JSON-encoded string of hook
+configuration. Policy-enforced hooks run before user-defined hooks and users
+cannot override them, which makes it the mechanism for guaranteeing telemetry
+coverage across an organization. Generate the value with:
+
+```bash
+# Paste this single line into the enforcedHooks policy value.
+# Point --hook-cmd at the absolute path on the MANAGED machines.
+otel-hook policy --bob --hook-cmd /opt/otel-hook/bin/otel-hook --raw
+
+# Pretty-printed for review instead of pasting:
+otel-hook policy --bob --hook-cmd /opt/otel-hook/bin/otel-hook
+
+# String-escaped, for nesting inside another JSON or plist document:
+otel-hook policy --bob --hook-cmd /opt/otel-hook/bin/otel-hook --escaped
+```
+
+Prefer an absolute `--hook-cmd` over `--portable`. A bare `otel-hook` resolves
+through `PATH`, and on a managed machine whose `PATH` lacks it every enforced
+hook fails — silently, per the rule above. `--portable` warns about this on
+stderr.
+
+Because the policy only registers the hook, configure the exporter separately —
+through `otel_config.json` or this hook's own MDM/registry settings — the same
+way as for Claude Code managed settings. See
+[MDM / Managed Configuration](#mdm--managed-configuration). Worked examples:
+[`examples/bob-hooks.example.json`](examples/bob-hooks.example.json) and
+[`examples/bob-enforced-hooks.example.json`](examples/bob-enforced-hooks.example.json).
+
 #### Other compatible runners
 
 For any hook runner not listed above, invoke `otel-hook` (or `python3 .../otel_hook.py`) and forward compatible hook JSON on stdin. Pass a self-reported client field such as `ide_name`, `client`, or `source_app` with the value matching your tool, or set `IDE_OTEL_IDE_NAME` in the environment. When your runner uses camelCase payload keys such as `sessionId`, `toolName`, `toolInput`, or `hookEventType`, the hook normalizes them automatically before exporting spans.
@@ -508,13 +599,19 @@ The hook writes the response expected by the current IDE/client.
 <no stdout>
 ```
 
+- IBM Bob, every event:
+
+```text
+<no stdout>
+```
+
 - If `IDE_OTEL_LOCAL_SPANS` is explicitly set (`true` or `false`), the response includes:
 
 ```json
 {"continue": true, "local_spans": true}
 ```
 
-For the stdout response field, `local_spans` uses `IDE_OTEL_LOCAL_SPANS` when set; otherwise internal behavior falls back to `IDE_OTEL_BATCH_ON_STOP`. Codex responses are adapter-managed: passive non-`Stop` events skip stdout entirely, and Codex responses do not include the custom `local_spans` field because Codex validates event-specific JSON schemas.
+For the stdout response field, `local_spans` uses `IDE_OTEL_LOCAL_SPANS` when set; otherwise internal behavior falls back to `IDE_OTEL_BATCH_ON_STOP`. Codex responses are adapter-managed: passive non-`Stop` events skip stdout entirely, and Codex responses do not include the custom `local_spans` field because Codex validates event-specific JSON schemas. Bob responses are adapter-managed too, and stay empty on every event: Bob injects hook stdout into the model context for `SessionStart` and `UserPromptSubmit`, so any envelope — `local_spans` included — would land in the prompt.
 
 ## Local Trace Files (Agent-Friendly)
 
@@ -774,15 +871,15 @@ Requires the [Datadog Agent](https://docs.datadoghq.com/opentelemetry/) with OTL
 
 | Event | Key Attributes |
 |-------|---------------|
-| `UserPromptSubmit` | `gen_ai.client.composer_mode`, `gen_ai.request.model` |
+| `UserPromptSubmit` | `UserPromptSubmit` | `gen_ai.client.composer_mode`, `gen_ai.request.model` |
 | `PreToolUse` / `PostToolUse` | `gen_ai.client.tool_name`, `gen_ai.client.tool_id`, `gen_ai.client.tool_use_id`, `gen_ai.client.duration_ms`, and explicit MCP identity when encoded |
-| `PostToolUseFailure` | `gen_ai.client.tool_name`, `gen_ai.client.tool_use_id`, `gen_ai.client.status=error`, privacy-safe error length/hash, and explicit MCP identity when encoded |
+| `PostToolUseFailure` | — | `gen_ai.client.tool_name`, `gen_ai.client.tool_use_id`, `gen_ai.client.status=error`, privacy-safe error length/hash, and explicit MCP identity when encoded |
 | `BeforeShellExecution` / `AfterShellExecution` | `gen_ai.client.command`, `gen_ai.client.cwd`, `gen_ai.client.exit_code` |
 | `BeforeMCPExecution` / `AfterMCPExecution` | `gen_ai.client.mcp_server`, `gen_ai.client.mcp_tool` |
 | `BeforeReadFile` / `AfterFileEdit` | `gen_ai.client.file_path`, `gen_ai.client.edits` |
 | `SubagentStart` / `SubagentStop` | `gen_ai.client.subagent_type`, `gen_ai.client.agent_id`, `gen_ai.client.parent_agent_id`, ID source, delegation length/hash, and status |
-| `Stop` | `gen_ai.client.status`, `gen_ai.client.loop_count` |
-| `ErrorOccurred` | `error.type`, `error.code`, `gen_ai.client.error.length`, `gen_ai.client.error.sha256`, and `gen_ai.client.is_interrupt` |
+| `Stop` | `Stop` ⁴ | `gen_ai.client.status`, `gen_ai.client.loop_count` |
+| `ErrorOccurred` | — | `error.type`, `error.code`, `gen_ai.client.error.length`, `gen_ai.client.error.sha256`, and `gen_ai.client.is_interrupt` |
 
 Real error and failure callbacks set the OpenTelemetry span status to `ERROR` without placing raw error content in the status description. Intentional callbacks marked `is_interrupt=true` retain `UNSET` status and use `gen_ai.client.status=interrupted`.
 

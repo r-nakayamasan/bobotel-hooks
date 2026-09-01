@@ -1,0 +1,79 @@
+{
+  "provider": "bob",
+  "cases": [
+    {
+      "raw": {
+        "event": "SessionStart",
+        "session_id": "ses_01abc123"
+      },
+      "expected": {
+        "event_name": "SessionStart",
+        "session_id": "ses_01abc123",
+        "conversation": []
+      }
+    },
+    {
+      "raw": {
+        "event": "UserPromptSubmit",
+        "session_id": "ses_01abc123",
+        "prompt": "Refactor the auth module"
+      },
+      "expected": {
+        "event_name": "UserPromptSubmit",
+        "session_id": "ses_01abc123",
+        "conversation": [
+          {"kind": "prompt", "role": "user", "length": 24}
+        ]
+      }
+    },
+    {
+      "raw": {
+        "event": "PreToolUse",
+        "session_id": "ses_01abc123",
+        "tool": "write_file",
+        "input": {"path": "src/index.ts", "content": "..."}
+      },
+      "expected": {
+        "event_name": "PreToolUse",
+        "session_id": "ses_01abc123",
+        "conversation": [],
+        "lifecycle_data": {
+          "tool_name": "write_file",
+          "tool_input": {"path": "src/index.ts", "content": "..."}
+        },
+        "lifecycle_data_absent": ["tool", "input"]
+      }
+    },
+    {
+      "raw": {
+        "event": "PostToolUse",
+        "session_id": "ses_01abc123",
+        "tool": "write_file",
+        "input": {"path": "src/index.ts", "content": "..."},
+        "output": "File written successfully"
+      },
+      "expected": {
+        "event_name": "PostToolUse",
+        "session_id": "ses_01abc123",
+        "conversation": [],
+        "lifecycle_data": {
+          "tool_name": "write_file",
+          "tool_input": {"path": "src/index.ts", "content": "..."},
+          "tool_output": "File written successfully"
+        },
+        "lifecycle_data_absent": ["tool", "input", "output"]
+      }
+    },
+    {
+      "raw": {
+        "event": "Stop",
+        "session_id": "ses_01abc123"
+      },
+      "expected": {
+        "event_name": "Stop",
+        "session_id": "ses_01abc123",
+        "conversation": []
+      }
+    }
+  ]
+}

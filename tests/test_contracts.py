@@ -73,6 +73,12 @@ def test_sanitized_provider_contract_fixture(fixture_path, monkeypatch):
             assert actual == expected["conversation"]
             assert all(item.text is None for item in canonical.conversation)
             assert all(len(item.sha256) == 64 for item in canonical.conversation)
+        if "lifecycle_data" in expected:
+            lifecycle = canonical.to_lifecycle_data()
+            for key, value in expected["lifecycle_data"].items():
+                assert lifecycle.get(key) == value, f"lifecycle_data[{key!r}]"
+        for key in expected.get("lifecycle_data_absent", []):
+            assert key not in canonical.to_lifecycle_data(), f"expected {key!r} to be renamed away"
         if "relationship" in expected:
             task = expected["relationship"]["task"]
             assert canonical.relationship.task is None

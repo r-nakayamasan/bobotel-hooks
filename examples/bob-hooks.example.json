@@ -1,0 +1,45 @@
+{
+  "_comment": "IBM Bob hooks configuration. Copy into ~/.bob/settings/settings.json (global) or .bob/settings.json (workspace).",
+  "_comment_2": "Generate this with: otel-hook setup --agent bob [--no-global]",
+  "_comment_3": "Bob supports exactly five lifecycle hooks and accepts `matcher` only on PreToolUse/PostToolUse.",
+  "_comment_4": "timeout is 30s rather than Bob's 10s default: a cold Python start plus an OTLP flush can exceed 10s, and Bob only logs a timeout, so a short value drops telemetry silently.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "/opt/otel-hook/bin/otel-hook --bob", "timeout": 30}
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {"type": "command", "command": "/opt/otel-hook/bin/otel-hook --bob", "timeout": 30}
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {"type": "command", "command": "/opt/otel-hook/bin/otel-hook --bob", "timeout": 30}
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {"type": "command", "command": "/opt/otel-hook/bin/otel-hook --bob", "timeout": 30}
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": "/opt/otel-hook/bin/otel-hook --bob", "timeout": 30}
+        ]
+      }
+    ]
+  }
+}

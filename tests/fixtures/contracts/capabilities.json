@@ -8,6 +8,7 @@
     "gemini": ["conversation", "subagent", "tool"],
     "copilot": ["conversation", "tool", "error"],
     "opencode": ["conversation", "tool", "error"],
-    "antigravity": ["conversation", "subagent", "tool"]
+    "antigravity": ["conversation", "subagent", "tool"],
+    "bob": ["conversation", "tool"]
   }
 }

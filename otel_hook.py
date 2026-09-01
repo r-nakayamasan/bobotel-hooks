@@ -354,6 +354,18 @@ _CODEX_MATCHERS = {
     "PostToolUse": "*",
 }
 
+# IBM Bob exposes exactly five lifecycle hooks and accepts `matcher` only on the
+# two tool callbacks.  Its event names are already canonical PascalCase, so no
+# _CANONICAL_EVENT aliases are required.
+_BOB_EVENTS = [
+    "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop",
+]
+_BOB_MATCHER_EVENTS = {"PreToolUse", "PostToolUse"}
+# Bob's own per-hook default is 10s, which a cold Python start plus an OTLP
+# flush can exceed.  Bob treats a timeout as a non-blocking failure that is only
+# logged, so too small a value silently drops telemetry instead of failing loud.
+_BOB_HOOK_TIMEOUT_SECONDS = 30
+
 # OpenCode plugin — source filename (in plugin/) and destination filename (in plugins/).
 _OPENCODE_PLUGIN_SOURCE_FILENAME = "opencode.ts"
 _OPENCODE_PLUGIN_FILENAME = "otel-hook.ts"
@@ -446,7 +458,7 @@ _INPUT_ALIASES = {
 
 # Canonical gen_ai.client.name values accepted directly from IDE_OTEL_IDE_NAME or
 # self-reported payload metadata before alias fallback.
-_CANONICAL_IDE_NAMES = {"cursor", "copilot", "claude", "antigravity", "opencode", "windsurf", "zed", "vscode", "gemini", "codex"}
+_CANONICAL_IDE_NAMES = {"cursor", "copilot", "claude", "antigravity", "opencode", "windsurf", "zed", "vscode", "gemini", "codex", "bob"}
 _IDE_NAME_ALIASES = {
     "openai codex": "codex",
     "codex cli": "codex",
@@ -467,6 +479,7 @@ _IDE_NAME_ALIASES = {
     "open code": "opencode",
     "gemini cli": "gemini",
     "google gemini": "gemini",
+    "ibm bob": "bob",
 }
 _IDE_NAME_NORM_PATTERN = re.compile(r"[-_\s]+")
 _MANAGED_HOOK_SOURCE_ENV = "IDE_OTEL_HOOK_SOURCE"
@@ -1079,6 +1092,16 @@ def _detect_payload_client_name(data: dict, include_session_fallback: bool = Fal
     if data.get("turn_id") or data.get("last_assistant_message") is not None or data.get("tool_response") is not None:
         return "codex"
 
+    # IBM Bob is the only provider that reports a PascalCase lifecycle name under
+    # a bare `event` key — Claude Code uses `hook_event_name`.  This must precede
+    # the generic PascalCase rule below, which would otherwise claim Bob events.
+    if (
+        not data.get("hook_event_name")
+        and not data.get("hook_event_type")
+        and data.get("event") in _BOB_EVENTS
+    ):
+        return "bob"
+
     raw_event = _first_present(data, ("hook_event_name", "hook_event_type", "event"))
     if isinstance(raw_event, str) and raw_event and raw_event[0].isupper():
         return "claude"
@@ -1545,6 +1568,35 @@ class OpenCodeEventAdapter(ProviderEventAdapter):
     provider = "opencode"
 
 
+class BobEventAdapter(ProviderEventAdapter):
+    """IBM Bob names its tool fields generically; map them onto the shared contract.
+
+    Bob sends ``tool``/``input``/``output`` where every other provider sends
+    ``tool_name``/``tool_input``/``tool_output``.  Renaming them here — rather
+    than in the global ``_INPUT_ALIASES`` table — keeps three very common words
+    from being reinterpreted for other providers.
+    """
+
+    provider = "bob"
+    _TOOL_FIELD_ALIASES = {
+        "tool": "tool_name",
+        "input": "tool_input",
+        "output": "tool_output",
+    }
+
+    def _normalize_provider_fields(self, event_name: str, data: dict) -> None:
+        """Rename Bob's generic tool fields, scoped to the two tool callbacks."""
+        super()._normalize_provider_fields(event_name, data)
+        # Scope matters: `output` is otherwise picked up by _emit_shell_log as a
+        # stdout stream, and `input` is a UserPromptSubmit prompt fallback key in
+        # _conversation_records.  Bob only sends these on PreToolUse/PostToolUse.
+        if event_name not in {"PreToolUse", "PostToolUse"}:
+            return
+        for source, target in self._TOOL_FIELD_ALIASES.items():
+            if source in data and data.get(target) is None:
+                data[target] = data.pop(source)
+
+
 _DEFAULT_EVENT_ADAPTER = ProviderEventAdapter()
 _PROVIDER_EVENT_ADAPTERS = {
     "cursor": CursorEventAdapter(),
@@ -1555,6 +1607,7 @@ _PROVIDER_EVENT_ADAPTERS = {
     "antigravity": AntigravityEventAdapter(),
     "copilot": CopilotEventAdapter(),
     "opencode": OpenCodeEventAdapter(),
+    "bob": BobEventAdapter(),
 }
 
 
@@ -3104,6 +3157,10 @@ def _detect_ide_from_process_tree() -> Optional[str]:
                 return "copilot"
             if comm.endswith("claude") or comm.endswith("/claude"):
                 return "claude"
+            # Suffix match, not substring: "bob" is short enough that a
+            # substring test would also claim processes like "bobcat".
+            if comm.endswith("bob") or comm.endswith("/bob"):
+                return "bob"
 
             pid = ppid
     except Exception:
@@ -3490,9 +3547,30 @@ class CodexHookResponseAdapter(HookResponseAdapter):
         return self._merge_governance(base_payload, governance)
 
 
+class BobHookResponseAdapter(HookResponseAdapter):
+    """IBM Bob has no stdout response protocol, so the hook must stay silent.
+
+    Bob injects a hook's stdout into the model context for ``SessionStart`` and
+    ``UserPromptSubmit``, and ignores it for the rest.  Emitting the usual
+    ``{"continue": true}`` envelope would therefore paste JSON into the prompt on
+    every turn.  Bob signals control decisions through exit code 2 instead, and
+    this hook is observability-only, so there is nothing to project to stdout —
+    including for governance responses.
+    """
+
+    def build_payload(
+        self,
+        event_name: str,
+        data: dict,
+        governance: Optional[GovernanceResponse] = None,
+    ) -> Optional[dict]:
+        return None
+
+
 _DEFAULT_HOOK_RESPONSE_ADAPTER = HookResponseAdapter()
 _HOOK_RESPONSE_ADAPTERS = {
     "codex": CodexHookResponseAdapter(),
+    "bob": BobHookResponseAdapter(),
 }
 
 
@@ -5367,6 +5445,8 @@ def _detect_available_agents() -> list:
         found.append("windsurf")
     if os.path.isdir(os.path.join(home, ".codex")) or shutil.which("codex"):
         found.append("codex")
+    if os.path.isdir(os.path.join(home, ".bob")) or shutil.which("bob"):
+        found.append("bob")
     return found
 
 
@@ -5542,6 +5622,64 @@ def setup_claude(global_: bool = True, cwd: str = ".") -> None:
 
     _write_json_file(settings_path, settings)
     _log_setup_result("claude", settings_path, added, updated, skipped)
+
+
+def _bob_settings_path(global_: bool, cwd: str) -> str:
+    """Return Bob's settings.json path (note the extra `settings/` level when global)."""
+    if global_:
+        return os.path.join(os.path.expanduser("~"), ".bob", "settings", "settings.json")
+    return os.path.join(_find_repo_root(cwd), ".bob", "settings.json")
+
+
+def _configure_bob_hook(hook: dict) -> bool:
+    """Stamp the Bob source flag and an explicit timeout on one hook entry."""
+    changed = _configure_managed_hook_command(hook, "bob")
+    if hook.get("timeout") != _BOB_HOOK_TIMEOUT_SECONDS:
+        hook["timeout"] = _BOB_HOOK_TIMEOUT_SECONDS
+        changed = True
+    return changed
+
+
+def setup_bob(global_: bool = True, cwd: str = ".") -> None:
+    """Register otel-hook in IBM Bob's settings.json.
+
+    Bob uses the same nested ``matcher`` + ``hooks[]`` config shape as Claude
+    Code, but supports only five events and accepts ``matcher`` on just the two
+    tool callbacks.
+    """
+    hook_cmd = _hook_cmd_for_agent("bob")
+    settings_path = _bob_settings_path(global_, cwd)
+
+    settings = _load_json_file(settings_path)
+    hooks = settings.setdefault("hooks", {})
+    added, updated, skipped = [], [], []
+
+    for event in _BOB_EVENTS:
+        event_list = hooks.setdefault(event, [])
+        existing = [
+            h
+            for entry in event_list
+            for h in entry.get("hooks", [])
+            if "otel_hook" in h.get("command", "") or "otel-hook" in h.get("command", "")
+        ]
+
+        if existing:
+            changed = False
+            for hook in existing:
+                changed = _configure_bob_hook(hook) or changed
+            (updated if changed else skipped).append(event)
+            continue
+
+        hook = {"type": "command", "command": hook_cmd}
+        _configure_bob_hook(hook)
+        hook_entry: dict = {"hooks": [hook]}
+        if event in _BOB_MATCHER_EVENTS:
+            hook_entry["matcher"] = ".*"
+        event_list.append(hook_entry)
+        added.append(event)
+
+    _write_json_file(settings_path, settings)
+    _log_setup_result("bob", settings_path, added, updated, skipped)
 
 
 def setup_copilot(cwd: str = ".") -> None:
@@ -5752,6 +5890,8 @@ def setup_agent(agent: str, global_: bool = True, cwd: str = ".") -> None:
         setup_codex(global_=global_, cwd=cwd)
     elif agent == "opencode":
         setup_opencode(global_=global_, cwd=cwd)
+    elif agent == "bob":
+        setup_bob(global_=global_, cwd=cwd)
     else:
         raise ValueError(f"Unknown agent: {agent}")
 
@@ -5777,6 +5917,7 @@ def _log_setup_result(agent: str, path: str, added: list, updated: list, skipped
 @click.option("--gemini", "hook_source", flag_value="gemini", help="Run hook as Gemini CLI.")
 @click.option("--codex", "hook_source", flag_value="codex", help="Run hook as Codex CLI.")
 @click.option("--opencode", "hook_source", flag_value="opencode", help="Run hook as OpenCode.")
+@click.option("--bob", "hook_source", flag_value="bob", help="Run hook as IBM Bob.")
 @click.pass_context
 def cli(ctx: click.Context, hook_source: Optional[str]) -> None:
     """otel-hook — OpenTelemetry hook runner and setup CLI for AI coding agents.
@@ -5796,7 +5937,7 @@ def cli(ctx: click.Context, hook_source: Optional[str]) -> None:
 @cli.command("setup")
 @click.option(
     "--agent", "agents",
-    type=click.Choice(["cursor", "windsurf", "claude", "copilot", "gemini", "codex", "opencode"]),
+    type=click.Choice(["cursor", "windsurf", "claude", "copilot", "gemini", "codex", "opencode", "bob"]),
     multiple=True,
     help="Agent to configure. Omit to auto-detect all available agents.",
 )
@@ -5808,7 +5949,7 @@ def setup_cmd(agents: tuple, global_: bool, cwd: str) -> None:
     """Register otel-hook in one or more AI agent configs."""
     targets = list(agents) or _detect_available_agents()
     if not targets:
-        click.echo("No agents detected. Use --agent cursor|windsurf|claude|copilot|gemini|codex|opencode to specify one.", err=True)
+        click.echo("No agents detected. Use --agent cursor|windsurf|claude|copilot|gemini|codex|opencode|bob to specify one.", err=True)
         raise SystemExit(1)
     errors = []
     for agent in targets:
@@ -5824,7 +5965,7 @@ def setup_cmd(agents: tuple, global_: bool, cwd: str) -> None:
         raise SystemExit(1)
 
 
-_SUPPORTED_AGENTS = ("cursor", "windsurf", "claude", "copilot", "gemini", "codex", "opencode")
+_SUPPORTED_AGENTS = ("cursor", "windsurf", "claude", "copilot", "gemini", "codex", "opencode", "bob")
 
 
 def _agent_config_paths(global_: bool, cwd: str) -> dict[str, str]:
@@ -5842,6 +5983,7 @@ def _agent_config_paths(global_: bool, cwd: str) -> dict[str, str]:
             if global_
             else os.path.join(repo_root, ".opencode", "plugins", _OPENCODE_PLUGIN_FILENAME)
         ),
+        "bob": _bob_settings_path(global_, cwd),
     }
 
 
@@ -6050,7 +6192,7 @@ def doctor_cmd(agents: tuple, global_: bool, cwd: str, json_output: bool) -> Non
 @cli.command("diagnose")
 @click.option(
     "--agent", "agents",
-    type=click.Choice(["cursor", "windsurf", "claude", "copilot", "gemini", "codex", "opencode"]),
+    type=click.Choice(["cursor", "windsurf", "claude", "copilot", "gemini", "codex", "opencode", "bob"]),
     multiple=True,
     help="Agent to check. Omit to check all.",
 )
@@ -6094,7 +6236,7 @@ def diagnose_cmd(agents: tuple, global_: bool, cwd: str) -> None:
 @cli.command("uninstall")
 @click.option(
     "--agent", "agents",
-    type=click.Choice(["cursor", "windsurf", "claude", "copilot", "gemini", "codex", "opencode"]),
+    type=click.Choice(["cursor", "windsurf", "claude", "copilot", "gemini", "codex", "opencode", "bob"]),
     multiple=True,
     required=True,
 )
@@ -6152,6 +6294,27 @@ def uninstall_cmd(agents: tuple, global_: bool, cwd: str) -> None:
             if removed:
                 _write_json_file(path, settings)
             click.echo(f"  {'✓' if removed else '·'} [claude] Removed {removed} entries ({path})")
+
+        elif agent == "bob":
+            path = _bob_settings_path(global_, cwd)
+            settings = _load_json_file(path)
+            hooks = settings.get("hooks", {})
+            removed = 0
+            for event in list(hooks.keys()):
+                new_list = []
+                for entry in hooks[event]:
+                    surviving = [h for h in entry.get("hooks", []) if "otel-hook" not in h.get("command", "") and "otel_hook" not in h.get("command", "")]
+                    if surviving:
+                        entry["hooks"] = surviving
+                        new_list.append(entry)
+                    else:
+                        removed += 1
+                hooks[event] = new_list
+                if not hooks[event]:
+                    del hooks[event]
+            if removed:
+                _write_json_file(path, settings)
+            click.echo(f"  {'✓' if removed else '·'} [bob] Removed {removed} entries ({path})")
 
         elif agent == "copilot":
             path = os.path.join(_find_repo_root(cwd), ".github", "hooks", "otel-hooks.json")
@@ -6212,6 +6375,92 @@ def uninstall_cmd(agents: tuple, global_: bool, cwd: str) -> None:
             if removed:
                 _write_json_file(path, doc)
             click.echo(f"  {'✓' if removed else '·'} [codex] Removed {removed} entries ({path})")
+
+
+def _bob_policy_base_command(hook_cmd: Optional[str] = None, portable: bool = False) -> str:
+    """Resolve the otel-hook program a Bob policy should invoke, without the flag."""
+    if hook_cmd:
+        return hook_cmd
+    if portable:
+        return "otel-hook"
+    return _resolve_hook_cmd()
+
+
+def build_bob_enforced_hooks(
+    hook_cmd: Optional[str] = None,
+    timeout: int = _BOB_HOOK_TIMEOUT_SECONDS,
+    portable: bool = False,
+) -> dict:
+    """Build the hooks object for IBM Bob's ``enforcedHooks`` group policy.
+
+    The policy value is a JSON-encoded string conforming to Bob's hooks schema,
+    and policy-enforced hooks run before user hooks and cannot be overridden.
+    """
+    command = f"{_bob_policy_base_command(hook_cmd, portable)} --bob"
+
+    policy: dict = {}
+    for event in _BOB_EVENTS:
+        hook: dict = {"type": "command", "command": command}
+        if timeout > 0:
+            hook["timeout"] = timeout
+        entry: dict = {"hooks": [hook]}
+        if event in _BOB_MATCHER_EVENTS:
+            entry["matcher"] = ".*"
+        policy[event] = [entry]
+    return policy
+
+
+@cli.command("policy")
+@click.option("--bob", "agent", flag_value="bob", default=None,
+              help="Target IBM Bob's enforcedHooks group policy.")
+@click.option("--hook-cmd", default=None,
+              help="Absolute path to otel-hook on the MANAGED machines. Set this when the "
+                   "policy is authored somewhere other than where it is enforced.")
+@click.option("--portable", is_flag=True,
+              help="Emit a bare `otel-hook --bob` that relies on PATH instead of an absolute path.")
+@click.option("--timeout", default=_BOB_HOOK_TIMEOUT_SECONDS, show_default=True,
+              help="Per-hook timeout in seconds. 0 disables Bob's timeout.")
+@click.option("--raw", is_flag=True,
+              help="Emit compact single-line JSON to paste into the policy value verbatim.")
+@click.option("--escaped", is_flag=True,
+              help="Emit the value string-escaped, for embedding inside another JSON/plist document.")
+def policy_cmd(
+    agent: str,
+    hook_cmd: Optional[str],
+    portable: bool,
+    timeout: int,
+    raw: bool,
+    escaped: bool,
+) -> None:
+    """Generate an enforced-hooks group policy value for a managed agent."""
+    # Bob is the only agent with an enforced-hooks policy today; the flag keeps
+    # the surface ready for others rather than assuming a silent default.
+    if agent is None:
+        raise click.UsageError("Specify a target agent, for example --bob.")
+    if hook_cmd and portable:
+        raise click.UsageError("--hook-cmd and --portable are mutually exclusive.")
+    if timeout < 0:
+        raise click.UsageError("--timeout must be 0 (disabled) or a positive number of seconds.")
+
+    policy = build_bob_enforced_hooks(hook_cmd=hook_cmd, timeout=timeout, portable=portable)
+
+    if not os.path.isabs(_bob_policy_base_command(hook_cmd, portable)):
+        click.echo(
+            "Warning: the policy resolves otel-hook through PATH. On a managed machine "
+            "where PATH lacks it, Bob logs the failure and continues, so telemetry goes "
+            "missing silently. Prefer --hook-cmd with an absolute path.",
+            err=True,
+        )
+
+    # enforcedHooks holds JSON *text*, so --raw is single-encoded and paste-ready.
+    # --escaped double-encodes it for nesting inside another JSON or plist value.
+    compact = json.dumps(policy, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    if escaped:
+        click.echo(json.dumps(compact))
+    elif raw:
+        click.echo(compact)
+    else:
+        click.echo(json.dumps(policy, ensure_ascii=True, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
