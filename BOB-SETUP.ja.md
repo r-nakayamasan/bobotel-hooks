@@ -549,13 +549,16 @@ otel-hook policy --bob --hook-cmd /opt/otel-hook/bin/otel-hook --raw
 ### 6-3. ポリシーに設定する
 
 生成した1行を Bob のグループポリシー `EnforcedHooks` の値として配布します。
-配布経路は OS ごとに決まっています。
+配布経路は OS ごとに決まっています（IBM 提供のポリシーサンプルに準拠）。
 
 | OS | 配布先 | 配布方法 |
 |---|---|---|
-| **macOS** | managed preferences ドメイン `com.ibm.bob` | MDM の構成プロファイル（`com.ibm.bob.mobileconfig`）。Apple Business Manager / Jamf 等 |
-| **Windows** | レジストリ `Software\Policies\IBM\Bob` | GPO（ADMX/ADML を PolicyDefinitions に配置）または Intune |
-| **Linux** | `/etc/bob/policy.json` | Ansible / Chef / Puppet / Salt、または手動配置（所有者と権限に注意） |
+| **macOS** | managed preferences ドメイン `com.ibm.bob` | `.mobileconfig` を MDM（Jamf Pro / Intune / Mosyle / Kandji）で配布 |
+| **Windows** | レジストリ `Software\Policies\IBM\Bob` の値 `EnforcedHooks` | ADMX/ADML を `PolicyDefinitions` に配置して GPO、または Intune |
+| **Linux** | `/etc/bob/policy.json`（root 所有・`chmod 644`） | Ansible / Chef / Puppet / Salt、または手動配置 |
+
+> **キーを書かなければ、その設定は利用者の裁量のままになります。**
+> `EnforcedHooks` だけを配れば、他のポリシー（`UpdateMode` など）には影響しません。
 
 > **ドメインを2つ混同しないでください。**
 >
@@ -569,33 +572,68 @@ otel-hook policy --bob --hook-cmd /opt/otel-hook/bin/otel-hook --raw
 > otel-hook 側の詳細は README の
 > [MDM / Managed Configuration](README.md#mdm--managed-configuration) を参照。
 
-> **キー名は PascalCase の `EnforcedHooks` です。** Bob のグループポリシーは
-> `DisabledAutoApprovalGroups` / `UpdateMode` / `GatewayUrl` / `EnforcedHooks` と
-> すべて PascalCase です。`enforcedHooks` のように綴ると値が読まれず、
-> エラーも出ないまま hook が配布されません。
-`EnforcedHooks` は JSON 文字列を受け取ります。値が空、または JSON として
-不正な場合、ポリシーは**無視され**、hook 設定はユーザー任せに戻ります。
+#### macOS: すぐ使える profile
 
-設定例は [`examples/bob-enforced-hooks.example.json`](examples/bob-enforced-hooks.example.json) を参照してください。
+[`examples/bob-macos-profile.mobileconfig`](examples/bob-macos-profile.mobileconfig) を
+用意しました。`EnforcedHooks` に otel-hook の登録値が入った状態です。
 
-> **ポリシーとユーザー設定の両方に登録すると二重計上になります。**
-> ポリシーの hook はユーザー定義の hook を**置き換えるのではなく、加えて**
-> 実行されます。したがって、ある端末で利用者が既に
-> `otel-hook setup --agent bob` を実行していると、1つのイベントに対して
-> hook が2回走り、**span が2つ記録されます**（実測で確認：同一イベントを2回
-> 配信すると `PreToolUse` / `PostToolUse` / `Stop` はいずれも2個生成されました。
-> このフックの重複排除はツールコールバックには効きません）。
+配布前に3点だけ差し替えてください。
+
+1. `EnforcedHooks` 内の otel-hook のパスを、配布先端末の絶対パスに
+   （`otel-hook policy --bob --hook-cmd <絶対パス> --raw` で再生成）
+2. `com.example` を自組織の逆ドメインに
+3. 2つの `PayloadUUID` を `uuidgen` で生成した値に
+
+MDM に載せる前に、手元で試せます。
+
+```bash
+# インストール（sudo 必要）
+sudo profiles install -path examples/bob-macos-profile.mobileconfig
+
+# 適用確認
+profiles list
+defaults read com.ibm.bob EnforcedHooks
+
+# hook が登録されたか
+otel-hook diagnose --agent bob
+
+# 削除（PayloadIdentifier を指定）
+sudo profiles remove -identifier com.example.bob.otel
+```
+
+`PayloadScope` は `System`（端末の全ユーザー）です。`User` にすると
+ログイン中のユーザーのみが対象になります。`PayloadRemovalDisallowed` を
+`true` にしてあるので、利用者が自分でプロファイルを外すことはできません。
+
+> **`defaults write com.ibm.bob EnforcedHooks ...` では代用できません。**
 >
-> ポリシーで展開する場合は、利用者側の登録を外してください。
+> MDM を用意せずに試そうとして `defaults write` でユーザードメインに書いても、
+> **Bob はポリシーとして読みません**（Bob 2.0.2 / macOS で実測）。
 >
-> ```bash
-> # 各端末で利用者側の登録状況を確認
-> otel-hook diagnose --agent bob
+> 検証時は、同じ実行でグローバル設定側の hook は発火したのに、
+> ポリシー側の hook は発火しませんでした。つまり Bob が hook を実行しない状態
+> だったのではなく、ユーザードメインをポリシーの読み込み先として見ていない、
+> ということです。
 >
-> # 利用者側の登録を外す（ポリシー側は残る）
-> otel-hook uninstall --agent bob
-> otel-hook uninstall --agent bob --no-global   # プロジェクト単位も
-> ```
+> ポリシーの検証には `.mobileconfig` の install（＝上記の `sudo profiles install`）が必要です。
+>
+> なお `defaults write` に JSON をそのまま渡すと plist として解釈されて失敗します。
+> 文字列として書くには `-string` が必要です。
+
+#### Windows / Linux
+
+Windows は ADMX/ADML を `PolicyDefinitions` に配置し、GPO で
+`Software\Policies\IBM\Bob` の `EnforcedHooks` に値を設定します
+（ADMX の `class="Both"` により HKLM / HKCU の両方が対象です）。
+
+Linux は `/etc/bob/policy.json` に配置します。**Bob はこのファイルの変更を監視し、
+実行時に反映します**（再起動不要）。他のキーと同じファイルに同居させる形です。
+
+```json
+{
+  "EnforcedHooks": "<otel-hook policy --bob ... --raw の出力>"
+}
+```
 
 ### 6-4. `--portable` を避ける理由
 

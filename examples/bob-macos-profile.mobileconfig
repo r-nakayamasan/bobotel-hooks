@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  IBM Bob macOS Configuration Profile for otel-hook telemetry.
+
+  Sets only the EnforcedHooks policy, registering otel-hook on Bob's five
+  lifecycle events. Modelled on IBM's com.ibm.bob.mobileconfig sample.
+
+  Before using, replace:
+    1. the otel-hook path inside EnforcedHooks with the absolute path on your
+       managed machines (regenerate the value with the otel-hook policy command),
+    2. "com.example" with your organisation's reverse-domain prefix,
+    3. both PayloadUUID values with fresh ones from uuidgen.
+
+  This profile does not configure where telemetry is sent. Distribute
+  otel-hook's own config separately (managed-preferences domain
+  dev.o11y.opentelemetry-hook, or otel_config.json).
+
+  Install, verify and removal commands are in BOB-SETUP.ja.md section 6.
+-->
+<plist version="1.0">
+<dict>
+    <key>PayloadDisplayName</key>
+    <string>IBM Bob otel-hook telemetry</string>
+
+    <key>PayloadDescription</key>
+    <string>Registers otel-hook on Bob lifecycle events so agent activity is exported as OpenTelemetry traces.</string>
+
+    <key>PayloadIdentifier</key>
+    <string>com.example.bob.otel</string>
+
+    <key>PayloadType</key>
+    <string>Configuration</string>
+
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+
+    <key>PayloadUUID</key>
+    <string>B612BCE4-EC02-42FC-A8AE-0FF9FFF22059</string>
+
+    <key>PayloadRemovalDisallowed</key>
+    <true/>
+
+    <key>PayloadScope</key>
+    <string>System</string>
+
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>PayloadType</key>
+            <string>com.ibm.bob</string>
+
+            <key>PayloadDisplayName</key>
+            <string>IBM Bob Managed Preferences</string>
+
+            <key>PayloadIdentifier</key>
+            <string>com.example.bob.otel.prefs</string>
+
+            <key>PayloadUUID</key>
+            <string>AE24A74D-5D0F-49CA-B815-7B09FC419308</string>
+
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+
+            <key>EnforcedHooks</key>
+            <string>{"PostToolUse":[{"hooks":[{"command":"/opt/otel-hook/bin/otel-hook --bob","timeout":30,"type":"command"}],"matcher":".*"}],"PreToolUse":[{"hooks":[{"command":"/opt/otel-hook/bin/otel-hook --bob","timeout":30,"type":"command"}],"matcher":".*"}],"SessionStart":[{"hooks":[{"command":"/opt/otel-hook/bin/otel-hook --bob","timeout":30,"type":"command"}]}],"Stop":[{"hooks":[{"command":"/opt/otel-hook/bin/otel-hook --bob","timeout":30,"type":"command"}]}],"UserPromptSubmit":[{"hooks":[{"command":"/opt/otel-hook/bin/otel-hook --bob","timeout":30,"type":"command"}]}]}</string>
+        </dict>
+    </array>
+</dict>
+</plist>

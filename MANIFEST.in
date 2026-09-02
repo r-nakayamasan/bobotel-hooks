@@ -1,5 +1,6 @@
 include CHANGELOG.md
 recursive-include examples *.json
+recursive-include examples *.mobileconfig
 recursive-include examples *.md
 recursive-include examples *.ts
 recursive-include scripts *.py
