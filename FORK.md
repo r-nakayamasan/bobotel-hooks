@@ -3,19 +3,18 @@
 This repository is a fork of [`o11y-dev/opentelemetry-hooks`](https://github.com/o11y-dev/opentelemetry-hooks)
 (MIT) that adds **IBM Bob** as a supported agent.
 
-Because the upstream lives on github.com and this fork lives on an IBM
-GitHub Enterprise instance, GitHub's own fork mechanism cannot link them. The
-relationship is maintained through a plain `upstream` remote instead.
+It is maintained as a standalone repository rather than a GitHub fork, so the
+relationship to upstream is kept through a plain `upstream` remote.
 
 ## Remotes
 
 ```
-origin    → https://github.ibm.com/Ryo-Nakayama/opentelemetry-hooks-bob.git   (private)
-upstream  → https://github.com/o11y-dev/opentelemetry-hooks.git               (fetch only)
+origin    → https://github.com/r-nakayamasan/opentelemetry-hooks-bob.git
+upstream  → https://github.com/o11y-dev/opentelemetry-hooks.git   (fetch only)
 ```
 
 `upstream` has its push URL deliberately disabled so a stray `git push upstream`
-cannot reach the public repository. Reproduce that after a fresh clone with:
+cannot reach the upstream repository. Reproduce that after a fresh clone with:
 
 ```bash
 git remote add upstream https://github.com/o11y-dev/opentelemetry-hooks.git

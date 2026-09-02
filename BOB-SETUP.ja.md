@@ -45,12 +45,11 @@ pip install opentelemetry-hooks
 このフォーク（Bob 対応版）から直接入れる場合:
 
 ```bash
-pipx install git+https://github.ibm.com/Ryo-Nakayama/opentelemetry-hooks-bob.git@feat/bob-adapter
+pipx install git+https://github.com/r-nakayamasan/opentelemetry-hooks-bob.git@feat/bob-adapter
 ```
 
-> 社内 Enterprise のリポジトリなので、事前に github.ibm.com への git 認証
-> （credential helper か SSH）が必要です。組織展開ではビルド済み wheel を
-> 配布するほうが確実です。
+> 組織展開では、ビルド済み wheel を配布するほうが確実です
+> （`python -m build` で生成できます）。
 
 インストール先を確認します。**このパスは6章の強制展開で必要になります。**
 
