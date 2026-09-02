@@ -548,7 +548,26 @@ otel-hook policy --bob --hook-cmd /opt/otel-hook/bin/otel-hook --raw
 
 ### 6-3. ポリシーに設定する
 
-生成した1行を Bob のグループポリシー `EnforcedHooks` の値に設定します。
+生成した1行を Bob のグループポリシー `EnforcedHooks` の値として配布します。
+配布経路は OS ごとに決まっています。
+
+| OS | 配布先 | 配布方法 |
+|---|---|---|
+| **macOS** | managed preferences ドメイン `com.ibm.bob` | MDM の構成プロファイル（`com.ibm.bob.mobileconfig`）。Apple Business Manager / Jamf 等 |
+| **Windows** | レジストリ `Software\Policies\IBM\Bob` | GPO（ADMX/ADML を PolicyDefinitions に配置）または Intune |
+| **Linux** | `/etc/bob/policy.json` | Ansible / Chef / Puppet / Salt、または手動配置（所有者と権限に注意） |
+
+> **ドメインを2つ混同しないでください。**
+>
+> | 何の設定か | macOS の配布先 |
+> |---|---|
+> | **Bob のポリシー**（`EnforcedHooks`） | `com.ibm.bob` |
+> | **otel-hook 自身の設定**（送信先・プライバシー） | `dev.o11y.opentelemetry-hook` |
+>
+> 前者が「hook を強制する」設定、後者が「その hook がどこに送るか」の設定です。
+> 両方配らないと、hook は動くが送信先が無い（またはその逆）状態になります。
+> otel-hook 側の詳細は README の
+> [MDM / Managed Configuration](README.md#mdm--managed-configuration) を参照。
 
 > **キー名は PascalCase の `EnforcedHooks` です。** Bob のグループポリシーは
 > `DisabledAutoApprovalGroups` / `UpdateMode` / `GatewayUrl` / `EnforcedHooks` と

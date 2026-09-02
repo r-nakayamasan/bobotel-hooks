@@ -464,7 +464,13 @@ which a cold Python start plus an OTLP flush can exceed.
 ##### Org-wide enforcement via the `EnforcedHooks` group policy
 
 Bob's `EnforcedHooks` group policy takes a JSON-encoded string of hook
-configuration. Policy-enforced hooks run before user-defined hooks and users
+configuration. Bob delivers its policies through managed preferences under the
+`com.ibm.bob` domain on macOS, the registry key `Software\Policies\IBM\Bob` on
+Windows, and `/etc/bob/policy.json` on Linux — note that these are **Bob's own**
+policy channels, distinct from this hook's `dev.o11y.opentelemetry-hook` /
+`OpenTelemetryHook` channels used for exporter configuration. Both have to be
+distributed: the policy registers the hook, the hook's own config tells it where
+to send. Policy-enforced hooks run before user-defined hooks and users
 cannot override them, which makes it the mechanism for guaranteeing telemetry
 coverage across an organization. Generate the value with:
 
