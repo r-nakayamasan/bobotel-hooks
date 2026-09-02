@@ -464,7 +464,9 @@ which a cold Python start plus an OTLP flush can exceed.
 ##### Org-wide enforcement via the `EnforcedHooks` group policy
 
 Bob's `EnforcedHooks` group policy takes a JSON-encoded string of hook
-configuration. Bob delivers its policies through managed preferences under the
+configuration. Policy enforcement was verified working in the IBM Bob IDE
+(macOS/arm64, Bob 2.0.2); it is **untested under Bob Shell's headless
+`bob run`**, so verify a rollout from the IDE. Bob delivers its policies through managed preferences under the
 `com.ibm.bob` domain on macOS, the registry key `Software\Policies\IBM\Bob` on
 Windows, and `/etc/bob/policy.json` on Linux — note that these are **Bob's own**
 policy channels, distinct from this hook's `dev.o11y.opentelemetry-hook` /
