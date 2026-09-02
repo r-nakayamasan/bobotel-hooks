@@ -5,7 +5,7 @@
 ### Added
 - Added IBM Bob as a supported agent: a `BobEventAdapter` that maps Bob's `tool`/`input`/`output` fields onto the shared `tool_name`/`tool_input`/`tool_output` contract, scoped to `PreToolUse`/`PostToolUse` so `output` is not mistaken for a shell stdout stream and `input` does not shadow the `UserPromptSubmit` prompt key.
 - Added `otel-hook setup --agent bob`, `otel-hook --bob`, and Bob support in `diagnose`, `doctor`, and `uninstall`, writing `~/.bob/settings/settings.json` or `.bob/settings.json` with `matcher` on the two tool callbacks only.
-- Added `otel-hook policy --bob` to generate the value for Bob's `enforcedHooks` group policy, with `--hook-cmd` for the managed absolute path, `--raw` for a paste-ready single line, `--escaped` for nesting in another document, and a stderr warning when the command resolves through `PATH`.
+- Added `otel-hook policy --bob` to generate the value for Bob's `EnforcedHooks` group policy, with `--hook-cmd` for the managed absolute path, `--raw` for a paste-ready single line, `--escaped` for nesting in another document, and a stderr warning when the command resolves through `PATH`.
 - Added `bash setup.sh --bob` with matching diagnose, uninstall, and clean support.
 - Added a Bob provider contract fixture, a capability manifest entry, and `tests/test_bob.py` covering stdout silence, field mapping, detection, setup, and policy generation.
 - Added optional `lifecycle_data` and `lifecycle_data_absent` assertions to the shared provider contract fixture harness so field renames are verifiable from a fixture.
@@ -20,7 +20,7 @@
 - Stopped `_detect_payload_client_name` from claiming Bob payloads as Claude Code. Its generic "PascalCase event name means Claude" rule matched Bob's lifecycle names; Bob is now discriminated on the bare `event` key that Claude Code does not use.
 
 ### Notes
-- Documented that policy-enforced hooks run *in addition to* user hooks, so registering `otel-hook` in both Bob's `enforcedHooks` policy and a user's own `settings.json` records every event twice. Measured: the hook's session-backed idempotency covers provider-supplied event ids for a few event types but not repeated tool callbacks, so the duplicate is not absorbed. The Japanese guide's pre-rollout checklist covers clearing the user-side registration first.
+- Documented that policy-enforced hooks run *in addition to* user hooks, so registering `otel-hook` in both Bob's `EnforcedHooks` policy and a user's own `settings.json` records every event twice. Measured: the hook's session-backed idempotency covers provider-supplied event ids for a few event types but not repeated tool callbacks, so the duplicate is not absorbed. The Japanese guide's pre-rollout checklist covers clearing the user-side registration first.
 - Bob has no `SessionEnd`. Its `Stop` is a turn boundary, so it maps to generation end and is deliberately not mapped to `SessionEnd`; the session root span is emitted by the existing stale-session TTL flush. Lower `IDE_OTEL_STATE_TTL_SECONDS` for Bob deployments.
 
 ## 0.14.0 (2026-07-22)

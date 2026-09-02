@@ -6460,7 +6460,7 @@ def build_bob_enforced_hooks(
     timeout: int = _BOB_HOOK_TIMEOUT_SECONDS,
     portable: bool = False,
 ) -> dict:
-    """Build the hooks object for IBM Bob's ``enforcedHooks`` group policy.
+    """Build the hooks object for IBM Bob's ``EnforcedHooks`` group policy.
 
     The policy value is a JSON-encoded string conforming to Bob's hooks schema,
     and policy-enforced hooks run before user hooks and cannot be overridden.
@@ -6481,7 +6481,7 @@ def build_bob_enforced_hooks(
 
 @cli.command("policy")
 @click.option("--bob", "agent", flag_value="bob", default=None,
-              help="Target IBM Bob's enforcedHooks group policy.")
+              help="Target IBM Bob's EnforcedHooks group policy.")
 @click.option("--hook-cmd", default=None,
               help="Absolute path to otel-hook on the MANAGED machines. Set this when the "
                    "policy is authored somewhere other than where it is enforced.")
@@ -6521,7 +6521,7 @@ def policy_cmd(
             err=True,
         )
 
-    # enforcedHooks holds JSON *text*, so --raw is single-encoded and paste-ready.
+    # EnforcedHooks holds JSON *text*, so --raw is single-encoded and paste-ready.
     # --escaped double-encodes it for nesting inside another JSON or plist value.
     compact = json.dumps(policy, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
     if escaped:

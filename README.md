@@ -177,7 +177,7 @@ setup_windsurf(global_=True) # ~/.codeium/windsurf/settings.json
 setup_bob(global_=True)      # ~/.bob/settings/settings.json
 ```
 
-The IBM Bob `enforcedHooks` policy value is also available programmatically:
+The IBM Bob `EnforcedHooks` policy value is also available programmatically:
 
 ```python
 from otel_hook import build_bob_enforced_hooks
@@ -408,7 +408,7 @@ Restart OpenCode after installing. The bundled plugin — including the copy ins
 #### IBM Bob
 
 > 日本語のセットアップ手順書は [**BOB-SETUP.ja.md**](BOB-SETUP.ja.md) にあります
-> (Japanese setup guide, including org-wide `enforcedHooks` rollout).
+> (Japanese setup guide, including org-wide `EnforcedHooks` rollout).
 
 Bob uses the same nested `matcher` + `hooks[]` config shape as Claude Code, in
 `~/.bob/settings/settings.json` (global) or `.bob/settings.json` (workspace):
@@ -461,15 +461,15 @@ verify with `otel-hook diagnose --agent bob` after rollout. For the same reason
 `setup` writes `timeout: 30` rather than relying on Bob's 10-second default,
 which a cold Python start plus an OTLP flush can exceed.
 
-##### Org-wide enforcement via the `enforcedHooks` group policy
+##### Org-wide enforcement via the `EnforcedHooks` group policy
 
-Bob's `enforcedHooks` group policy takes a JSON-encoded string of hook
+Bob's `EnforcedHooks` group policy takes a JSON-encoded string of hook
 configuration. Policy-enforced hooks run before user-defined hooks and users
 cannot override them, which makes it the mechanism for guaranteeing telemetry
 coverage across an organization. Generate the value with:
 
 ```bash
-# Paste this single line into the enforcedHooks policy value.
+# Paste this single line into the EnforcedHooks policy value.
 # Point --hook-cmd at the absolute path on the MANAGED machines.
 otel-hook policy --bob --hook-cmd /opt/otel-hook/bin/otel-hook --raw
 

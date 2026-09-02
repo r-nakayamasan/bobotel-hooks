@@ -1,4 +1,4 @@
-"""IBM Bob adapter: field mapping, stdout silence, setup, and enforcedHooks policy."""
+"""IBM Bob adapter: field mapping, stdout silence, setup, and EnforcedHooks policy."""
 import json
 import os
 import sys
@@ -496,7 +496,7 @@ class TestDuplicateRegistrationIsNotDeduplicated:
 
 
 # ---------------------------------------------------------------------------
-# enforcedHooks group policy
+# EnforcedHooks group policy
 # ---------------------------------------------------------------------------
 
 class TestEnforcedHooksPolicy:

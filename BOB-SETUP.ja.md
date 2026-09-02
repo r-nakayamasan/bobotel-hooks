@@ -7,7 +7,7 @@
 
 - **個人で試す場合** → [1〜4章](#1-前提条件)
 - **バックエンドを立てず PC のフォルダだけで試す場合** → [4-B](#4-b-ローカルのフォルダだけに出力するバックエンド不要)
-- **組織全体に強制展開する場合** → [6章 enforcedHooks](#6-組織全体への強制展開enforcedhooks)
+- **組織全体に強制展開する場合** → [6章 EnforcedHooks](#6-組織全体への強制展開enforcedhooks)
 
 > **先に知っておくべき Bob の性質**
 > Bob は失敗した hook を**ログに記録するだけで無視**します。設定を誤っても
@@ -507,9 +507,9 @@ Bob で1ターン動かし、バックエンドに `gen_ai.client.name=bob` の 
 
 ---
 
-## 6. 組織全体への強制展開（enforcedHooks）
+## 6. 組織全体への強制展開（EnforcedHooks）
 
-Bob のグループポリシー `enforcedHooks` は、**ユーザーが上書きできない** hook を
+Bob のグループポリシー `EnforcedHooks` は、**ユーザーが上書きできない** hook を
 管理者が定義する仕組みです。ポリシーで強制された hook はユーザー定義の hook より
 先に実行されます。組織全体でテレメトリ取得を保証したい場合はこれを使います。
 
@@ -549,8 +549,13 @@ otel-hook policy --bob --hook-cmd /opt/otel-hook/bin/otel-hook --raw
 
 ### 6-3. ポリシーに設定する
 
-生成した1行を Bob のグループポリシー `enforcedHooks` の値に設定します。
-`enforcedHooks` は JSON 文字列を受け取ります。値が空、または JSON として
+生成した1行を Bob のグループポリシー `EnforcedHooks` の値に設定します。
+
+> **キー名は PascalCase の `EnforcedHooks` です。** Bob のグループポリシーは
+> `DisabledAutoApprovalGroups` / `UpdateMode` / `GatewayUrl` / `EnforcedHooks` と
+> すべて PascalCase です。`enforcedHooks` のように綴ると値が読まれず、
+> エラーも出ないまま hook が配布されません。
+`EnforcedHooks` は JSON 文字列を受け取ります。値が空、または JSON として
 不正な場合、ポリシーは**無視され**、hook 設定はユーザー任せに戻ります。
 
 設定例は [`examples/bob-enforced-hooks.example.json`](examples/bob-enforced-hooks.example.json) を参照してください。
@@ -619,7 +624,7 @@ otel-hook doctor --agent bob       # 送信の健全性と未送信の滞留
 
 ### 6-7. 無効化・ロールバック
 
-`enforcedHooks` の値を**空にする**か、JSON として不正な値にすると、
+`EnforcedHooks` の値を**空にする**か、JSON として不正な値にすると、
 ポリシーは無視され hook 設定はユーザー任せに戻ります。ロールバックは
 ポリシー欄を空にするのが最も確実です。
 
@@ -832,7 +837,7 @@ otel-hook uninstall --agent bob --no-global
 ```
 
 `otel-hook` の登録のみが削除され、他の hook は保持されます。
-強制展開している場合は、グループポリシーの `enforcedHooks` も併せて解除してください。
+強制展開している場合は、グループポリシーの `EnforcedHooks` も併せて解除してください。
 
 ---
 
@@ -840,6 +845,6 @@ otel-hook uninstall --agent bob --no-global
 
 - [README の IBM Bob セクション（英語・詳細）](README.md#ibm-bob)
 - [`examples/bob-hooks.example.json`](examples/bob-hooks.example.json) — settings.json の例
-- [`examples/bob-enforced-hooks.example.json`](examples/bob-enforced-hooks.example.json) — enforcedHooks ポリシーの例
+- [`examples/bob-enforced-hooks.example.json`](examples/bob-enforced-hooks.example.json) — EnforcedHooks ポリシーの例
 - [設定リファレンス（全変数）](README.md#configuration-reference)
 - [FORK.md](FORK.md) — 上流リポジトリとの関係・同期手順

@@ -1,8 +1,8 @@
 {
-  "_comment": "IBM Bob `enforcedHooks` group policy. Policy-enforced hooks run BEFORE user hooks and users cannot override them.",
-  "_comment_2": "The policy value is a JSON-encoded string, so paste the single-line value of `enforcedHooks` below into the policy field — not this whole wrapper document.",
+  "_comment": "IBM Bob `EnforcedHooks` group policy. Policy-enforced hooks run BEFORE user hooks and users cannot override them.",
+  "_comment_2": "The policy value is a JSON-encoded string, so paste the single-line value of `EnforcedHooks` below into the policy field — not this whole wrapper document.",
   "_comment_3": "Generate the value with: otel-hook policy --bob --hook-cmd /opt/otel-hook/bin/otel-hook --raw",
   "_comment_4": "Use --escaped instead when nesting the value inside another JSON or plist document.",
   "_comment_5": "Point --hook-cmd at the absolute path on the MANAGED machines. A bare `otel-hook` relies on PATH, and Bob ignores a failing hook, so telemetry would go missing silently.",
-  "enforcedHooks": "{\"PostToolUse\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}],\"matcher\":\".*\"}],\"PreToolUse\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}],\"matcher\":\".*\"}],\"SessionStart\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}]}],\"Stop\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}]}],\"UserPromptSubmit\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}]}]}"
+  "EnforcedHooks": "{\"PostToolUse\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}],\"matcher\":\".*\"}],\"PreToolUse\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}],\"matcher\":\".*\"}],\"SessionStart\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}]}],\"Stop\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}]}],\"UserPromptSubmit\":[{\"hooks\":[{\"command\":\"/opt/otel-hook/bin/otel-hook --bob\",\"timeout\":30,\"type\":\"command\"}]}]}"
 }
